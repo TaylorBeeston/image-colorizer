@@ -1,0 +1,18 @@
+[package]
+name = "colorizer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+image = "0.24.6"
+palette = "0.7.2"
+indicatif = "0.17.3"
+rayon = "1.7.0"
+serde = "1.0"
+serde_derive = "1.0"
+config = "0.13"
+toml = "0.7"
+dirs = "5.0"
+clap = "3.2"
