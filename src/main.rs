@@ -5,7 +5,7 @@ use colors::KANAGAWA;
 use clap::{App, Arg};
 use config::builder::DefaultState;
 use config::{ConfigBuilder, File};
-use image::{GenericImageView, ImageBuffer, RgbImage};
+use image::{GenericImageView, ImageBuffer, Rgb, RgbImage};
 use indicatif::{ProgressBar, ProgressStyle};
 use palette::color_difference::ImprovedCiede2000;
 use palette::{FromColor, IntoColor, Lab, Lch, Srgb};
@@ -14,12 +14,13 @@ use serde_derive::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Deserialize)]
 struct AppConfig {
     blend_factor: String,
     colorscheme: String,
+    interpolation_threshold: String,
 }
 
 fn hex_to_rgb(hex: &str) -> Srgb<f32> {
@@ -28,6 +29,41 @@ fn hex_to_rgb(hex: &str) -> Srgb<f32> {
     let g = u8::from_str_radix(&hex[2..4], 16).unwrap() as f32 / 255.0;
     let b = u8::from_str_radix(&hex[4..6], 16).unwrap() as f32 / 255.0;
     Srgb::new(r, g, b)
+}
+
+fn interpolate_color(color1: &Lab, color2: &Lab, t: f32) -> Lab {
+    Lab::new(
+        color1.l + (color2.l - color1.l) * t,
+        color1.a + (color2.a - color1.a) * t,
+        color1.b + (color2.b - color1.b) * t,
+    )
+}
+
+fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
+    let mut lab_colors: Vec<Lab> = colors.iter().map(|&c| Lab::from_color(c)).collect();
+    lab_colors.sort_by(|a, b| a.l.partial_cmp(&b.l).unwrap());
+
+    let mut interpolated = Vec::new();
+    for window in lab_colors.windows(2) {
+        let color1 = &window[0];
+        let color2 = &window[1];
+        interpolated.push(*color1);
+
+        let distance = color1.improved_difference(*color2);
+
+        if distance > threshold {
+            let steps = (distance / threshold).ceil() as usize;
+            for i in 1..steps {
+                let t = i as f32 / steps as f32;
+                interpolated.push(interpolate_color(color1, color2, t));
+            }
+        }
+    }
+    interpolated.push(*lab_colors.last().unwrap());
+
+    dbg!((colors.len(), interpolated.clone().len()));
+
+    interpolated
 }
 
 fn adjust_luminance(color: Srgb<f32>, target_luminance: f32) -> Srgb<f32> {
@@ -41,7 +77,8 @@ fn load_config(config_path: Option<&str>) -> Result<AppConfig, config::ConfigErr
 
     builder = builder
         .set_default("blend_factor", "0.9")?
-        .set_default("colorscheme", "kanagawa")?;
+        .set_default("colorscheme", "kanagawa")?
+        .set_default("interpolation_threshold", "2.5")?;
 
     let default_config_path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(""))
@@ -90,7 +127,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('b')
                 .long("blend-factor")
                 .value_name("FACTOR")
-                .help("Overrides the blend factor set in config")
+                .help("[0.0-1.0] Overrides the blend factor set in config")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("Interpolation Threshold")
+                .long("interpolation-threshold")
+                .value_name("FACTOR")
+                .help("[0.0-1.0] Overrides the interpolation threshold set in config")
                 .takes_value(true),
         )
         .arg(
@@ -119,13 +163,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let colorscheme = load_colorscheme(&config.colorscheme, &config_dir)?;
     let colors: Vec<Srgb<f32>> = colorscheme.iter().map(|hex| hex_to_rgb(hex)).collect();
 
-    let string_blend_factor = matches
+    let blend_factor = matches
         .value_of("Blend Factor")
         .unwrap_or(&config.blend_factor);
 
-    let blend_factor: f32 = string_blend_factor
+    let blend_factor: f32 = blend_factor
         .parse()
         .map_err(|e| format!("Failed to parse blend_factor: {}", e))?;
+
+    let interpolation_threshold = matches
+        .value_of("Interpolation Threshold")
+        .unwrap_or(&config.interpolation_threshold);
+
+    let interpolation_threshold: f32 = interpolation_threshold
+        .parse()
+        .map_err(|e| format!("Failed to parse interpolation_threshold: {}", e))?;
+
+    // Interpolate colors
+    let interpolated_colors = interpolate_colors(&colors, interpolation_threshold);
 
     let img = image::open(input_path)?;
     let (width, height) = img.dimensions();
@@ -142,13 +197,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let progress = Arc::new(AtomicU64::new(0));
-    let pb_arc = Arc::new(pb);
+    let output: Arc<Mutex<RgbImage>> = Arc::new(Mutex::new(ImageBuffer::new(width, height)));
 
-    let mut output: RgbImage = ImageBuffer::new(width, height);
-
-    output.par_chunks_mut(3).enumerate().for_each(|(i, chunk)| {
-        let x = (i as u32) % width;
-        let y = (i as u32) / width;
+    (0..total_pixels).into_par_iter().for_each(|i| {
+        let x = (i % width as u64) as u32;
+        let y = (i / width as u64) as u32;
         let pixel = img.get_pixel(x, y);
         let original_rgb = Srgb::new(
             pixel[0] as f32 / 255.0,
@@ -156,12 +209,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pixel[2] as f32 / 255.0,
         );
         let original_lab: Lab = original_rgb.into_color();
-        let original_lch: Lch = original_lab.into_color();
 
-        let (closest_color, _) = colors
+        let mut closest_color = *interpolated_colors
             .iter()
-            .map(|&c| (c, Lab::from_color(c)))
-            .min_by(|&(_, a), &(_, b)| {
+            .min_by(|&&a, &&b| {
                 original_lab
                     .improved_difference(a)
                     .partial_cmp(&original_lab.improved_difference(b))
@@ -169,25 +220,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .unwrap();
 
-        let adjusted_color = adjust_luminance(closest_color, original_lch.l / 100.0);
+        closest_color.l = original_lab.l;
 
+        let adjusted_color: Srgb<f32> = (closest_color).into_color();
         let final_color = Srgb::new(
             adjusted_color.red * blend_factor + original_rgb.red * (1.0 - blend_factor),
             adjusted_color.green * blend_factor + original_rgb.green * (1.0 - blend_factor),
             adjusted_color.blue * blend_factor + original_rgb.blue * (1.0 - blend_factor),
         );
 
-        chunk[0] = (final_color.red * 255.0) as u8;
-        chunk[1] = (final_color.green * 255.0) as u8;
-        chunk[2] = (final_color.blue * 255.0) as u8;
+        let new_pixel = Rgb([
+            (final_color.red * 255.0) as u8,
+            (final_color.green * 255.0) as u8,
+            (final_color.blue * 255.0) as u8,
+        ]);
+
+        output.lock().unwrap().put_pixel(x, y, new_pixel);
 
         let prev_count = progress.fetch_add(1, Ordering::Relaxed);
         if prev_count % 10000 == 0 {
-            pb_arc.set_position(prev_count);
+            pb.set_position(prev_count);
         }
     });
 
-    pb_arc.finish_with_message("Processing complete");
+    pb.finish_with_message("Processing complete");
 
     let output_path = format!(
         "{}_{}_{}.png",
@@ -195,7 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.colorscheme,
         blend_factor
     );
-    output.save(output_path)?;
+    output.lock().unwrap().save(output_path)?;
 
     println!("Processed image saved successfully!");
     Ok(())
