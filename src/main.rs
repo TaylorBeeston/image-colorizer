@@ -8,7 +8,8 @@ use config::{ConfigBuilder, File};
 use image::{GenericImageView, ImageBuffer, Rgb, RgbImage};
 use indicatif::{ProgressBar, ProgressStyle};
 use palette::color_difference::ImprovedCiede2000;
-use palette::{FromColor, IntoColor, Lab, Lch, Srgb};
+use palette::{FromColor, IntoColor, Lab, Srgb};
+use rand::Rng;
 use rayon::prelude::*;
 use serde_derive::Deserialize;
 use std::fs;
@@ -21,6 +22,8 @@ struct AppConfig {
     blend_factor: String,
     colorscheme: String,
     interpolation_threshold: String,
+    dither_amount: String,
+    spatial_averaging_radius: String,
 }
 
 fn hex_to_rgb(hex: &str) -> Srgb<f32> {
@@ -29,6 +32,15 @@ fn hex_to_rgb(hex: &str) -> Srgb<f32> {
     let g = u8::from_str_radix(&hex[2..4], 16).unwrap() as f32 / 255.0;
     let b = u8::from_str_radix(&hex[4..6], 16).unwrap() as f32 / 255.0;
     Srgb::new(r, g, b)
+}
+
+fn lab_to_image_rgb(lab: Lab) -> Rgb<u8> {
+    let rgb: Srgb = lab.into_color();
+    Rgb([
+        (rgb.red.clamp(0.0, 1.0) * 255.0) as u8,
+        (rgb.green.clamp(0.0, 1.0) * 255.0) as u8,
+        (rgb.blue.clamp(0.0, 1.0) * 255.0) as u8,
+    ])
 }
 
 fn interpolate_color(color1: &Lab, color2: &Lab, t: f32) -> Lab {
@@ -66,19 +78,15 @@ fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
     interpolated
 }
 
-fn adjust_luminance(color: Srgb<f32>, target_luminance: f32) -> Srgb<f32> {
-    let mut lch: Lch = color.into_color();
-    lch.l = target_luminance * 100.0;
-    lch.into_color()
-}
-
 fn load_config(config_path: Option<&str>) -> Result<AppConfig, config::ConfigError> {
     let mut builder = ConfigBuilder::default();
 
     builder = builder
         .set_default("blend_factor", "0.9")?
         .set_default("colorscheme", "kanagawa")?
-        .set_default("interpolation_threshold", "2.5")?;
+        .set_default("interpolation_threshold", "2.5")?
+        .set_default("dither_amount", "0.1")?
+        .set_default("spatial_averaging_radius", "2")?;
 
     let default_config_path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(""))
@@ -116,6 +124,53 @@ fn load_colorscheme(
     }
 }
 
+fn apply_dithering(color: Lab, target: Lab, amount: f32) -> Lab {
+    let mut rng = rand::thread_rng();
+    Lab::new(
+        color.l + (target.l - color.l) * amount * rng.gen::<f32>(),
+        color.a + (target.a - color.a) * amount * rng.gen::<f32>(),
+        color.b + (target.b - color.b) * amount * rng.gen::<f32>(),
+    )
+}
+
+fn spatial_color_average(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    radius: u32,
+    image: &RgbImage,
+) -> Lab {
+    let mut sum_lab: Lab = Lab::new(0.0, 0.0, 0.0);
+    let mut count = 0;
+
+    for dy in -(radius as i32)..=(radius as i32) {
+        for dx in -(radius as i32)..=(radius as i32) {
+            let nx = (x as i32 + dx).clamp(0, width as i32 - 1) as u32;
+            let ny = (y as i32 + dy).clamp(0, height as i32 - 1) as u32;
+
+            let pixel = image.get_pixel(nx, ny);
+            let lab: Lab = Srgb::new(
+                pixel[0] as f32 / 255.0,
+                pixel[1] as f32 / 255.0,
+                pixel[2] as f32 / 255.0,
+            )
+            .into_color();
+
+            sum_lab.l += lab.l;
+            sum_lab.a += lab.a;
+            sum_lab.b += lab.b;
+            count += 1;
+        }
+    }
+
+    Lab::new(
+        sum_lab.l / count as f32,
+        sum_lab.a / count as f32,
+        sum_lab.b / count as f32,
+    )
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("Image Colorizer")
         .version("1.0")
@@ -133,8 +188,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(
             Arg::with_name("Interpolation Threshold")
                 .long("interpolation-threshold")
-                .value_name("FACTOR")
-                .help("[0.0-1.0] Overrides the interpolation threshold set in config")
+                .value_name("THRESHOLD")
+                .help("[0.0-100.0] Overrides the interpolation threshold set in config")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("Dither Amount")
+                .short('d')
+                .long("dither-amount")
+                .value_name("AMOUNT")
+                .help("[0.0-1.0] Overrides the dither amount set in config")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("Spatial Averaging Radius")
+                .long("spatial-averaging-radius")
+                .value_name("RADIUS")
+                .help("[0-100] Overrides the spatial averaging radius set in config")
                 .takes_value(true),
         )
         .arg(
@@ -179,6 +249,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .map_err(|e| format!("Failed to parse interpolation_threshold: {}", e))?;
 
+    let dither_amount = matches
+        .value_of("Dither Amount")
+        .unwrap_or(&config.dither_amount);
+
+    let dither_amount: f32 = dither_amount
+        .parse()
+        .map_err(|e| format!("Failed to parse dither_amount: {}", e))?;
+
+    let spatial_averaging_radius = matches
+        .value_of("Spatial Averaging Radius")
+        .unwrap_or(&config.spatial_averaging_radius);
+
+    let spatial_averaging_radius: u32 = spatial_averaging_radius
+        .parse()
+        .map_err(|e| format!("Failed to parse spatial_averaging_radius: {}", e))?;
+
     // Interpolate colors
     let interpolated_colors = interpolate_colors(&colors, interpolation_threshold);
 
@@ -199,6 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let progress = Arc::new(AtomicU64::new(0));
     let output: Arc<Mutex<RgbImage>> = Arc::new(Mutex::new(ImageBuffer::new(width, height)));
 
+    // First pass: Apply color mapping and dithering
     (0..total_pixels).into_par_iter().for_each(|i| {
         let x = (i % width as u64) as u32;
         let y = (i / width as u64) as u32;
@@ -210,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         let original_lab: Lab = original_rgb.into_color();
 
-        let mut closest_color = *interpolated_colors
+        let closest_color = interpolated_colors
             .iter()
             .min_by(|&&a, &&b| {
                 original_lab
@@ -220,21 +307,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .unwrap();
 
-        closest_color.l = original_lab.l;
+        let dithered_color = apply_dithering(original_lab, *closest_color, dither_amount);
 
-        let adjusted_color: Srgb<f32> = (closest_color).into_color();
-        let final_color = Srgb::new(
-            adjusted_color.red * blend_factor + original_rgb.red * (1.0 - blend_factor),
-            adjusted_color.green * blend_factor + original_rgb.green * (1.0 - blend_factor),
-            adjusted_color.blue * blend_factor + original_rgb.blue * (1.0 - blend_factor),
-        );
-
-        let new_pixel = Rgb([
-            (final_color.red * 255.0) as u8,
-            (final_color.green * 255.0) as u8,
-            (final_color.blue * 255.0) as u8,
-        ]);
-
+        let new_pixel = lab_to_image_rgb(dithered_color);
         output.lock().unwrap().put_pixel(x, y, new_pixel);
 
         let prev_count = progress.fetch_add(1, Ordering::Relaxed);
@@ -243,7 +318,68 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    pb.finish_with_message("Processing complete");
+    pb.finish_with_message("First pass complete");
+
+    // Second pass: Apply spatial color averaging and luminance transfer
+    let pb2 = ProgressBar::new(total_pixels);
+    pb2.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+
+    let progress2 = Arc::new(AtomicU64::new(0));
+    let final_output: Arc<Mutex<RgbImage>> = Arc::new(Mutex::new(ImageBuffer::new(width, height)));
+
+    (0..total_pixels).into_par_iter().for_each(|i| {
+        let x = (i % width as u64) as u32;
+        let y = (i / width as u64) as u32;
+
+        let original_pixel = img.get_pixel(x, y);
+        let original_lab: Lab = Srgb::new(
+            original_pixel[0] as f32 / 255.0,
+            original_pixel[1] as f32 / 255.0,
+            original_pixel[2] as f32 / 255.0,
+        )
+        .into_color();
+
+        let averaged_lab = spatial_color_average(
+            x,
+            y,
+            width,
+            height,
+            spatial_averaging_radius,
+            &output.lock().unwrap(),
+        );
+
+        let mut final_lab = averaged_lab;
+        final_lab.l = original_lab.l; // Transfer luminance
+
+        let final_rgb = lab_to_image_rgb(final_lab);
+        let blended_rgb = Rgb([
+            ((final_rgb[0] as f32 * blend_factor + original_pixel[0] as f32 * (1.0 - blend_factor))
+                as u8)
+                .clamp(0, 255),
+            ((final_rgb[1] as f32 * blend_factor + original_pixel[1] as f32 * (1.0 - blend_factor))
+                as u8)
+                .clamp(0, 255),
+            ((final_rgb[2] as f32 * blend_factor + original_pixel[2] as f32 * (1.0 - blend_factor))
+                as u8)
+                .clamp(0, 255),
+        ]);
+
+        final_output.lock().unwrap().put_pixel(x, y, blended_rgb);
+
+        let prev_count = progress2.fetch_add(1, Ordering::Relaxed);
+        if prev_count % 10000 == 0 {
+            pb2.set_position(prev_count);
+        }
+    });
+
+    pb2.finish_with_message("Second pass complete");
 
     let output_path = format!(
         "{}_{}_{}.png",
