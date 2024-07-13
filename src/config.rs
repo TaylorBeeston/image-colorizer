@@ -136,6 +136,14 @@ pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("output")
+                .short('o')
+                .long("output")
+                .value_name("OUTPUT_FILE")
+                .help("Sets the output filename")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("Image Path")
                 .help("Path to the image you'd like to colorize")
                 .required(true)
@@ -145,6 +153,7 @@ pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
 
     let config = load_config(matches.value_of("config"))?;
     let input_path = matches.value_of("Image Path").unwrap();
+    let output_filename = matches.value_of("output").map(String::from);
 
     let config_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(""))
@@ -190,6 +199,7 @@ pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
 
     Ok(AppConfig {
         input_path: input_path.to_string(),
+        output_filename,
         blend_factor,
         colorscheme: config.colorscheme,
         colors,

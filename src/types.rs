@@ -3,6 +3,7 @@ use palette::Lab;
 #[derive(Debug)]
 pub struct AppConfig {
     pub input_path: String,
+    pub output_filename: Option<String>,
     pub blend_factor: f32,
     pub colorscheme: String,
     pub colors: Vec<Lab>,
