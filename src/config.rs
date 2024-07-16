@@ -3,13 +3,69 @@ use crate::constants::VERSION;
 use crate::types::AppConfig;
 use crate::utils::{hex_to_rgb, interpolate_color};
 
-use clap::{App, Arg};
-use config::builder::DefaultState;
-use config::{ConfigBuilder, File};
-use palette::{color_difference::ImprovedCiede2000, FromColor, Lab, Srgb};
-use serde_derive::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use clap::{App, Arg};
+use config::builder::DefaultState;
+use config::{ConfigBuilder, ConfigError, File};
+use palette::{color_difference::ImprovedCiede2000, FromColor, Lab, Srgb};
+use serde_derive::Deserialize;
+use toml;
+
+#[derive(Debug)]
+pub enum AppError {
+    Io(std::io::Error),
+    Image(image::ImageError),
+    Config(ConfigError),
+    Toml(toml::de::Error),
+    Other(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AppError::Io(err) => write!(f, "I/O error: {}", err),
+            AppError::Image(err) => write!(f, "Image error: {}", err),
+            AppError::Config(err) => write!(f, "Config error: {}", err),
+            AppError::Toml(err) => write!(f, "TOML error: {}", err),
+            AppError::Other(err) => write!(f, "Error: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> AppError {
+        AppError::Io(err)
+    }
+}
+
+impl From<image::ImageError> for AppError {
+    fn from(err: image::ImageError) -> AppError {
+        AppError::Image(err)
+    }
+}
+
+impl From<ConfigError> for AppError {
+    fn from(err: ConfigError) -> AppError {
+        AppError::Config(err)
+    }
+}
+
+impl From<toml::de::Error> for AppError {
+    fn from(err: toml::de::Error) -> AppError {
+        AppError::Toml(err)
+    }
+}
+
+impl From<String> for AppError {
+    fn from(err: String) -> AppError {
+        AppError::Other(err)
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct SerializedAppConfig {
@@ -20,7 +76,7 @@ struct SerializedAppConfig {
     spatial_averaging_radius: String,
 }
 
-fn load_config(config_path: Option<&str>) -> Result<SerializedAppConfig, config::ConfigError> {
+fn load_config(config_path: Option<&str>) -> Result<SerializedAppConfig, AppError> {
     let mut builder = ConfigBuilder::default();
 
     builder = builder
@@ -47,13 +103,10 @@ fn load_config(config_path: Option<&str>) -> Result<SerializedAppConfig, config:
 
     let config = builder.build()?;
 
-    config.try_deserialize()
+    config.try_deserialize().map_err(AppError::from)
 }
 
-fn load_colorscheme(
-    name: &str,
-    config_dir: &Path,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn load_colorscheme(name: &str, config_dir: &Path) -> Result<Vec<String>, AppError> {
     let colorscheme_path = config_dir.join(format!("{}.toml", name));
     if colorscheme_path.exists() {
         let colorscheme_str = fs::read_to_string(colorscheme_path)?;
@@ -62,7 +115,7 @@ fn load_colorscheme(
     } else if name == "kanagawa" {
         Ok(KANAGAWA.iter().map(|&s| s.to_string()).collect())
     } else {
-        Err(format!("Colorscheme '{}' not found", name).into())
+        Err(AppError::Other(format!("Colorscheme '{}' not found", name)))
     }
 }
 
@@ -91,7 +144,7 @@ fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
     interpolated
 }
 
-pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
+pub fn init() -> Result<Arc<AppConfig>, AppError> {
     let matches = App::new("Image Colorizer")
         .version(VERSION)
         .author("Taylor Beeston")
@@ -139,21 +192,26 @@ pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
             Arg::with_name("output")
                 .short('o')
                 .long("output")
-                .value_name("OUTPUT_FILE")
-                .help("Sets the output filename")
+                .value_name("OUTPUT_DIR")
+                .help("Sets the output directory")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("Image Path")
-                .help("Path to the image you'd like to colorize")
+            Arg::with_name("Image Paths")
+                .help("Paths to the images you'd like to colorize")
                 .required(true)
+                .multiple(true)
                 .index(1),
         )
         .get_matches();
 
     let config = load_config(matches.value_of("config"))?;
-    let input_path = matches.value_of("Image Path").unwrap();
-    let output_filename = matches.value_of("output").map(String::from);
+
+    let input_paths: Vec<&str> = matches.values_of("Image Paths").unwrap().collect();
+    let output_dir = matches.value_of("output").map(PathBuf::from);
+
+    let input_output_pairs =
+        generate_input_output_pairs(&input_paths, output_dir, &config.colorscheme)?;
 
     let config_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(""))
@@ -197,14 +255,40 @@ pub fn init() -> Result<AppConfig, Box<dyn std::error::Error>> {
     // Interpolate colors
     let colors = interpolate_colors(&colors, interpolation_threshold);
 
-    Ok(AppConfig {
-        input_path: input_path.to_string(),
-        output_filename,
+    Ok(Arc::new(AppConfig {
+        input_output_pairs,
         blend_factor,
         colorscheme: config.colorscheme,
         colors,
         interpolation_threshold,
         dither_amount,
         spatial_averaging_radius,
-    })
+    }))
+}
+
+fn generate_input_output_pairs(
+    input_paths: &[&str],
+    output_dir: Option<PathBuf>,
+    colorscheme: &str,
+) -> Result<Vec<(String, String)>, AppError> {
+    let mut pairs = Vec::new();
+
+    for input_path in input_paths {
+        let input_path = Path::new(input_path);
+        let file_stem = input_path.file_stem().unwrap().to_str().unwrap();
+        let extension = input_path.extension().unwrap_or_default().to_str().unwrap();
+
+        let output_path = if let Some(ref dir) = output_dir {
+            dir.join(format!("{}_{}.{}", file_stem, colorscheme, extension))
+        } else {
+            input_path.with_file_name(format!("{}_{}.{}", file_stem, colorscheme, extension))
+        };
+
+        pairs.push((
+            input_path.to_str().unwrap().to_string(),
+            output_path.to_str().unwrap().to_string(),
+        ));
+    }
+
+    Ok(pairs)
 }

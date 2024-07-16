@@ -1,9 +1,7 @@
 use image::{Rgb, RgbImage};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 use palette::{IntoColor, Lab, Srgb};
 use rand::Rng;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
 pub fn hex_to_rgb(hex: &str) -> Srgb<f32> {
     let hex = hex.trim_start_matches('#');
@@ -41,7 +39,6 @@ pub fn apply_dithering(color: Lab, target: Lab, amount: f32) -> Lab {
 
 pub fn compute_integral_image(
     image: &RgbImage,
-    progress: &Arc<AtomicU64>,
     progress_bar: &ProgressBar,
 ) -> Vec<Vec<(f64, f64, f64)>> {
     let (width, height) = image.dimensions();
@@ -66,7 +63,9 @@ pub fn compute_integral_image(
                     + lab.b as f64,
             );
 
-            update_progress(progress, progress_bar);
+            if (y * width as usize + x) % 100 == 0 {
+                progress_bar.inc(100);
+            }
         }
     }
 
@@ -102,25 +101,4 @@ pub fn fast_spatial_color_average(
         (sum.1 / area as f64) as f32,
         (sum.2 / area as f64) as f32,
     )
-}
-
-pub fn create_progress_bar(total_steps: u64, message: String) -> ProgressBar {
-    let pb = ProgressBar::new(total_steps);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent_precise}% ({eta})\n{msg}",
-            )
-            .unwrap()
-            .progress_chars("#>-"),
-    );
-    pb.set_message(message);
-    pb
-}
-
-pub fn update_progress(progress: &AtomicU64, progress_bar: &ProgressBar) {
-    let prev_count = progress.fetch_add(1, Ordering::Relaxed);
-    if prev_count % 5000 == 0 {
-        progress_bar.set_position(prev_count);
-    }
 }

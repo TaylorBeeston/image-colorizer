@@ -5,39 +5,57 @@ mod constants;
 mod types;
 mod utils;
 
-use crate::colorize::colorize;
-use crate::config::init;
+use crate::colorize::{colorize, ColorMap};
+use crate::config::{init, AppError};
+use crate::types::AppConfig;
 
-use std::fs;
-use std::path::Path;
+use std::sync::Arc;
 
-use image::ImageFormat;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = init()?;
+fn main() -> Result<(), AppError> {
+    let config = Arc::new(init()?);
+    let color_map = Arc::new(ColorMap::new());
+    let multi_progress = Arc::new(MultiProgress::new());
 
-    let img = image::open(&config.input_path)?;
+    let results: Vec<Result<(), AppError>> = config.input_output_pairs
+        .par_iter()
+        .map(|(input_path, output_path)| {
+            let pb = multi_progress.add(ProgressBar::new(100));
+            pb.set_style(ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent_precise}% ({eta}) {msg}")
+                .unwrap()
+                .progress_chars("#>-"));
+            pb.set_message(format!("Processing: {}", input_path));
 
-    let final_output = colorize(&img, &config);
+            let result = process_image(input_path, output_path, Arc::clone(&config), Arc::clone(&color_map), pb.clone());
 
-    let input_path = Path::new(&config.input_path);
-    let output_path = if let Some(output_filename) = &config.output_filename {
-        Path::new(output_filename).to_path_buf()
-    } else {
-        let file_stem = input_path.file_stem().unwrap().to_str().unwrap();
-        let extension = input_path.extension().unwrap_or_default().to_str().unwrap();
-        input_path.with_file_name(format!(
-            "{}_{}.{}",
-            file_stem, config.colorscheme, extension
-        ))
-    };
+            if result.is_ok() {
+                pb.finish_with_message(format!("Finished: {} (Saved to: {})", input_path, output_path));
+            } else {
+                pb.finish_with_message(format!("Failed: {}", input_path));
+            }
 
-    let mut output_file = fs::File::create(&output_path)?;
-    let format = ImageFormat::from_extension(output_path.extension().unwrap_or_default())
-        .unwrap_or(ImageFormat::Png);
-    final_output.write_to(&mut output_file, format)?;
+            result
+        })
+        .collect();
 
-    println!("Saved to: {:?}", output_path);
+    // Check for any errors
+    results.into_iter().collect::<Result<Vec<_>, _>>()?;
 
+    Ok(())
+}
+
+fn process_image(
+    input_path: &str,
+    output_path: &str,
+    config: Arc<AppConfig>,
+    color_map: Arc<ColorMap>,
+    pb: ProgressBar,
+) -> Result<(), AppError> {
+    let img = image::open(input_path)?;
+    let final_output = colorize(&img, &config, color_map, pb);
+    final_output.save(output_path)?;
     Ok(())
 }

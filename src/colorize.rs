@@ -1,75 +1,79 @@
 use crate::types::AppConfig;
 use crate::utils::{
-    apply_dithering, compute_integral_image, create_progress_bar, fast_spatial_color_average,
-    lab_to_image_rgb, update_progress,
+    apply_dithering, compute_integral_image, fast_spatial_color_average, lab_to_image_rgb,
 };
 
-use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
+use dashmap::DashMap;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Pixel, Rgb, RgbImage};
 use indicatif::ProgressBar;
 use palette::color_difference::ImprovedCiede2000;
 use palette::{IntoColor, Lab, Srgb};
 use rayon::prelude::*;
 
-pub fn colorize(img: &DynamicImage, config: &AppConfig) -> RgbImage {
-    let (width, height) = img.dimensions();
-    let total_pixels = (width * height) as u64;
-    let total_steps = total_pixels * 3; // Three passes over the image
+pub struct ColorMap(Arc<DashMap<[u8; 3], Lab>>);
 
-    let progress = Arc::new(AtomicU64::new(0));
-    let progress_bar = create_progress_bar(total_steps, "Colorizing image".to_string());
+impl ColorMap {
+    pub fn new() -> Self {
+        ColorMap(Arc::new(DashMap::with_capacity(1024)))
+    }
 
-    progress_bar.set_message("Pass 1: Applying Color Mapping and Dithering");
+    pub fn get(&self, key: &[u8; 3]) -> Option<Lab> {
+        self.0.get(key).map(|v| *v)
+    }
 
+    pub fn insert(&self, key: [u8; 3], value: Lab) {
+        self.0.insert(key, value);
+    }
+}
+
+pub fn colorize(
+    img: &DynamicImage,
+    config: &AppConfig,
+    color_map: Arc<ColorMap>,
+    pb: ProgressBar,
+) -> RgbImage {
     // First pass: Color mapping and dithering
-    let first_pass_output =
-        apply_color_mapping_and_dithering(img, config, &progress, &progress_bar);
-
-    progress_bar.set_message("Pass 2: Calculating Integral Image");
+    pb.set_message("Pass 1: Applying Color Mapping and Dithering");
+    let first_pass_output = apply_color_mapping_and_dithering(img, config, &color_map, &pb);
 
     // Second pass: Compute integral image
-    let integral_image = compute_integral_image(&first_pass_output, &progress, &progress_bar);
-
-    progress_bar.set_message("Pass 3: Applying Spatial Averaging and Luminance Transfer");
+    pb.set_message("Pass 2: Calculating Integral Image");
+    let integral_image = compute_integral_image(&first_pass_output, &pb);
 
     // Third pass: Spatial averaging and luminance transfer
-    let final_output = apply_spatial_averaging_and_luminance_transfer(
-        img,
-        config,
-        &integral_image,
-        &progress,
-        &progress_bar,
-    );
+    pb.set_message("Pass 3: Applying Spatial Averaging and Luminance Transfer");
+    let final_output =
+        apply_spatial_averaging_and_luminance_transfer(img, config, &integral_image, &pb);
 
-    progress_bar.finish_with_message("Image colorization complete");
+    pb.finish_with_message("Image colorization complete");
     final_output
 }
 
 fn apply_color_mapping_and_dithering(
     img: &DynamicImage,
     config: &AppConfig,
-    progress: &Arc<AtomicU64>,
-    progress_bar: &ProgressBar,
+    color_map: &ColorMap,
+    pb: &ProgressBar,
 ) -> RgbImage {
     let (width, height) = img.dimensions();
     let output: Arc<Mutex<RgbImage>> = Arc::new(Mutex::new(ImageBuffer::new(width, height)));
-    let color_map: Arc<Mutex<HashMap<[u8; 3], Lab>>> = Arc::new(Mutex::new(HashMap::new()));
 
     (0..height).into_par_iter().for_each(|y| {
         for x in 0..width {
             let pixel = img.get_pixel(x, y);
             let colorized_lab =
-                memoized_find_closest_color(&color_map, pixel.to_rgb(), &config.colors);
+                memoized_find_closest_color(color_map, pixel.to_rgb(), &config.colors);
             let dithered_color =
                 apply_dithering(colorized_lab, colorized_lab, config.dither_amount);
 
             let new_pixel = lab_to_image_rgb(dithered_color);
             output.lock().unwrap().put_pixel(x, y, new_pixel);
 
-            update_progress(progress, progress_bar);
+            if (y * width + x) % 100 == 0 {
+                pb.inc(100);
+            }
         }
     });
 
@@ -80,8 +84,7 @@ fn apply_spatial_averaging_and_luminance_transfer(
     original_img: &DynamicImage,
     config: &AppConfig,
     integral_image: &[Vec<(f64, f64, f64)>],
-    progress: &Arc<AtomicU64>,
-    progress_bar: &ProgressBar,
+    pb: &ProgressBar,
 ) -> RgbImage {
     let (width, height) = original_img.dimensions();
     let final_output: Arc<Mutex<RgbImage>> = Arc::new(Mutex::new(ImageBuffer::new(width, height)));
@@ -108,7 +111,9 @@ fn apply_spatial_averaging_and_luminance_transfer(
 
             final_output.lock().unwrap().put_pixel(x, y, blended_rgb);
 
-            update_progress(progress, progress_bar);
+            if (y * width + x) % 100 == 0 {
+                pb.inc(100);
+            }
         }
     });
 
@@ -125,14 +130,10 @@ fn get_lab_color(img: &DynamicImage, x: u32, y: u32) -> Lab {
     rgb.into_color()
 }
 
-fn memoized_find_closest_color(
-    color_map: &Arc<Mutex<HashMap<[u8; 3], Lab>>>,
-    pixel: Rgb<u8>,
-    colors: &[Lab],
-) -> Lab {
+fn memoized_find_closest_color(color_map: &ColorMap, pixel: Rgb<u8>, colors: &[Lab]) -> Lab {
     let key = [pixel[0], pixel[1], pixel[2]];
 
-    if let Some(&lab) = color_map.lock().unwrap().get(&key) {
+    if let Some(lab) = color_map.get(&key) {
         return lab;
     }
 
@@ -145,7 +146,7 @@ fn memoized_find_closest_color(
     let closest_color = find_closest_color(&original_lab, colors);
     let colorized_lab = Lab::new(original_lab.l, closest_color.a, closest_color.b);
 
-    color_map.lock().unwrap().insert(key, colorized_lab);
+    color_map.insert(key, colorized_lab);
 
     colorized_lab
 }
