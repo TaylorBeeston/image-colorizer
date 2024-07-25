@@ -23,8 +23,8 @@ fn fast_spatial_color_average(x: u32, y: u32) -> vec3<f32> {
     let radius = i32(params.spatial_radius);
     let x1 = max(i32(x) - radius, 0);
     let y1 = max(i32(y) - radius, 0);
-    let x2 = min(i32(x) + radius, i32(params.width) - 1);
-    let y2 = min(i32(y) + radius, i32(params.height) - 1);
+    let x2 = min(i32(x) + radius, i32(params.width - 1u));
+    let y2 = min(i32(y) + radius, i32(params.height - 1u));
 
     let area = f32((x2 - x1 + 1) * (y2 - y1 + 1));
 
@@ -33,19 +33,19 @@ fn fast_spatial_color_average(x: u32, y: u32) -> vec3<f32> {
     let bottom_left = get_sat_value(u32(x1), u32(y2 + 1));
     let bottom_right = get_sat_value(u32(x2 + 1), u32(y2 + 1));
 
-    let sum = bottom_right - top_right - bottom_left + top_left;
+    let sum = vec3<f32>(bottom_right.r - top_right.r - bottom_left.r + top_left.r,
+        bottom_right.g - top_right.g - bottom_left.g + top_left.g,
+        bottom_right.b - top_right.b - bottom_left.b + top_left.b);
 
-    return sum / area;
+    return vec3<f32>(f32(sum.r / area), f32(sum.g / area), f32(sum.b / area));
 }
 
 fn get_sat_value(x: u32, y: u32) -> vec3<f32> {
-    if x >= params.width || y >= params.height { return vec3<f32>(0.0); }
-    let index = y * params.width + x;
+    let index = y * (params.width + 1u) + x;
     return vec3<f32>(sat[index].r, sat[index].g, sat[index].b);
 }
 
 fn rgb_to_lab(rgb: vec3<f32>) -> vec3<f32> {
-  // Actual RGB to LAB conversion
     let xyz = rgb_to_xyz(rgb);
     return xyz_to_lab(xyz);
 }
@@ -119,14 +119,15 @@ fn xyz_to_rgb(xyz: vec3<f32>) -> vec3<f32> {
     if x >= params.width || y >= params.height { return; }
 
     let input_color = vec3<f32>(f32(input[index].r), f32(input[index].g), f32(input[index].b));
-    let avg_color = fast_spatial_color_average(x, y);
+    let avg_lab = fast_spatial_color_average(x, y);
 
     let input_lab = rgb_to_lab(input_color);
-    let avg_lab = rgb_to_lab(avg_color);
 
-    let final_lab = mix(input_lab, avg_lab, f32(params.blend_factor));
+    let luminance_transferred_lab = vec3<f32>(input_lab.r, avg_lab.g, avg_lab.b);
+    let luminance_transferred_rgb = lab_to_rgb(luminance_transferred_lab);
 
-    let final_color = lab_to_rgb(final_lab);
+    let final_color = mix(input_color, luminance_transferred_rgb, f32(params.blend_factor));
+
     let clamped_color = clamp_color(final_color);
   // let clamped_color = clamp_color(get_sat_value(x, y));
 

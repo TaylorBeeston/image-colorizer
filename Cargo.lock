@@ -292,6 +292,7 @@ dependencies = [
  "indicatif",
  "palette",
  "rand",
+ "rayon",
  "serde",
  "serde_derive",
  "tokio",

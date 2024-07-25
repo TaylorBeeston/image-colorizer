@@ -35,7 +35,7 @@ async fn main() -> Result<(), AppError> {
                 .progress_chars("#>-"));
             pb.set_message(format!("Processing: {}", input_path));
 
-            let result = process_image(&input_path, &output_path, config, pb.clone()).await;
+            let result = process_image(&input_path, &output_path, config, &pb).await;
 
             if result.is_ok() {
                 pb.finish_with_message(format!(
@@ -63,10 +63,10 @@ async fn process_image(
     input_path: &str,
     output_path: &str,
     config: Arc<AppConfig>,
-    pb: ProgressBar,
+    pb: &ProgressBar,
 ) -> Result<(), AppError> {
     let img = image::open(input_path)?;
-    let final_output = colorize(&img, &config, pb).await.unwrap();
+    let final_output = colorize(&img, &config, &pb).await.unwrap();
     final_output.save(output_path)?;
     Ok(())
 }

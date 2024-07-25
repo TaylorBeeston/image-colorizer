@@ -21,3 +21,4 @@ futures = "0.3"
 bytemuck = { version = "1.13", features = ["derive"] }
 tokio = { version = "1.28", features = ["full"] }
 anyhow = "1.0"
+rayon = "1.7.0"
