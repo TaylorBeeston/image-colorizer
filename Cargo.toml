@@ -1,5 +1,5 @@
 [package]
-name = "colorizer"
+name = "image-colorizer"
 version = "1.0.0"
 authors = ["Taylor Beeston <beeston.taylor@gmail.com>"]
 edition = "2021"
