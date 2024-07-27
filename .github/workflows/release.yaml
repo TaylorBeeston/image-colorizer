@@ -10,23 +10,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
+
     - name: Run tests
       run: cargo test
+
     - name: Build
       run: cargo build --release
+
     - name: Increment version
       id: version
       run: |
-        current_version=$(grep version Cargo.toml | sed 's/.*= "//' | sed 's/"//')
+        current_version=$(grep '^version =' Cargo.toml | sed 's/.*= "\(.*\)"/\1/')
         new_version=$(echo $current_version | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
-        sed -i "s/version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
+        sed -i "s/^version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
         echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
         git config user.name github-actions
         git config user.email github-actions@github.com
         git add Cargo.toml
         git commit -m "Bump version to $new_version"
+
     - name: Push to release branch
       run: |
         git push origin HEAD:release
