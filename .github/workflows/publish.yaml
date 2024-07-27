@@ -25,4 +25,3 @@ jobs:
             
             Please review the changes and merge if everything looks good.
           base: publish
-          delete-branch: true
