@@ -1,0 +1,78 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [publish, release]
+
+jobs:
+  test_and_build:
+    if: github.ref == 'refs/heads/publish'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+    - name: Run tests
+      run: cargo test
+    - name: Build
+      run: cargo build --release
+    - name: Increment version
+      id: version
+      run: |
+        current_version=$(grep version Cargo.toml | sed 's/.*= "//' | sed 's/"//')
+        new_version=$(echo $current_version | awk -F. '{$NF = $NF + 1;} 1' | sed 's/ /./g')
+        sed -i "s/version = \"$current_version\"/version = \"$new_version\"/" Cargo.toml
+        echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add Cargo.toml
+        git commit -m "Bump version to $new_version"
+    - name: Push to release branch
+      run: |
+        git push origin HEAD:release
+
+  publish_crates_and_aur:
+    if: github.ref == 'refs/heads/release'
+    needs: test_and_build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Publish to crates.io
+      env:
+        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      run: cargo publish --token ${CRATES_IO_TOKEN}
+    
+    - name: Import GPG key
+      uses: crazy-max/ghaction-import-gpg@v5
+      with:
+        gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+        passphrase: ${{ secrets.GPG_PASSPHRASE }}
+    
+    - name: Update PKGBUILD
+      run: |
+        version=$(grep version Cargo.toml | sed 's/.*= "//' | sed 's/"//')
+        sed "s/pkgver=.*/pkgver=$version/" PKGBUILD.template > PKGBUILD
+        # Download the source and calculate its SHA256 sum
+        curl -sL "https://crates.io/api/v1/crates/image-colorizer/$version/download" -o "$pkgname-$version.tar.gz"
+        sum=$(sha256sum "$pkgname-$version.tar.gz" | cut -d ' ' -f 1)
+        sed -i "s/sha256sums=('PLACEHOLDER')/sha256sums=('$sum')/" PKGBUILD
+    
+    - name: Publish AUR package
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      run: |
+        mkdir -p ~/.ssh
+        echo "$SSH_PRIVATE_KEY" > ~/.ssh/aur
+        chmod 600 ~/.ssh/aur
+        git config --global user.name "Taylor Beeston"
+        git config --global user.email "beeston.taylor@gmail.com"
+        git clone ssh://aur@aur.archlinux.org/image-colorizer.git aur-repo
+        cp PKGBUILD aur-repo/
+        cd aur-repo
+        git add PKGBUILD
+        git commit -S -m "Update to version $version"
+        git push
