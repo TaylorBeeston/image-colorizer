@@ -11,6 +11,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Fetch release/main
+      run: |
+        git fetch origin main:main
+        git fetch origin release:release
+
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
 
