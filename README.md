@@ -1,19 +1,28 @@
-# Colorizer
+# Image Colorizer
 
 **Never settle for images outside your colorscheme again!**
 Now 🔥B l a z i n g F a s t🔥 thanks to 🦀Rust and 🖥️WGSL
+
+## Install
+
+This project is available via crates.io
+```bash
+cargo install image-colorizer
+```
+
+I am currently working on adding support for other package managers, such as the AUR, brew, etc.
 
 ## Quick Start
 
 ### Single Image
 ```bash
-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jgp
+image-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jgp
 ```
 
 ### Multiple Images
 
 ```bash
-colorizer -o ./processed_images input_image1.jpg input_image2.png
+image-colorizer -o ./processed_images input_image1.jpg input_image2.png
 ```
 
 ## Features
@@ -32,7 +41,7 @@ Before you begin, ensure you have a GPU that supports WebGPU
 To use the Image Colorizer, run the following command:
 
 ```bash
-colorizer [OPTIONS] <IMAGE_PATHS>...
+image-colorizer [OPTIONS] <IMAGE_PATHS>...
 ```
 
 ### Options
@@ -61,7 +70,7 @@ You can also create custom color schemes by adding a TOML file with the color va
 
 ## How It Works
 
-The Image Colorizer uses a sophisticated combination of CPU and GPU processing to efficiently transform images. Here's a detailed overview of the process:
+he Image Colorizer uses a sophisticated combination of CPU and GPU processing to efficiently transform images. Here's a detailed overview of the process:
 
 ```mermaid
 graph TD
