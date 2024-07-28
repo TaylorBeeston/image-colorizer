@@ -18,8 +18,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
       - name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         env:
@@ -28,9 +30,9 @@ jobs:
 
       - name: Update PKGBUILD
         run: |
-          version=$(grep version Cargo.toml | sed 's/.*= "//' | sed 's/"//')
+          version=$(grep '^version =' Cargo.toml | sed 's/.*= "\(.*\)"/\1/')
           sed "s/pkgver=.*/pkgver=$version/" PKGBUILD.template > PKGBUILD
-          sum=$(curl -sL https://crates.io/api/v1/crates/image-colorizer/$version/download | sha256sum | cut -d ' ' -f 1)
+          sum=$(curl -sL "https://crates.io/api/v1/crates/image-colorizer/$version/download" | sha256sum | cut -d ' ' -f 1)
           sed -i "s/sha256sums=('PLACEHOLDER')/sha256sums=('$sum')/" PKGBUILD
 
       - name: Import GPG key
