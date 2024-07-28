@@ -48,7 +48,6 @@ jobs:
 
   publish_crates_and_aur:
     if: github.ref == 'refs/heads/release'
-    needs: test_and_build
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
