@@ -28,6 +28,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  publish-aur:
+    needs: release-plz
+    runs-on: ubuntu-latest
+    container: 
+      image: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install git and gnupg
+        run: pacman -Sy --noconfirm git gnupg
+
       - name: Update PKGBUILD
         run: |
           version=$(grep '^version =' Cargo.toml | sed 's/.*= "\(.*\)"/\1/')
@@ -35,27 +46,39 @@ jobs:
           sum=$(curl -sL "https://crates.io/api/v1/crates/image-colorizer/$version/download" | sha256sum | cut -d ' ' -f 1)
           sed -i "s/sha256sums=('PLACEHOLDER')/sha256sums=('$sum')/" PKGBUILD
 
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v5
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Generate .SRCINFO
+        run: |
+          makepkg --printsrcinfo > .SRCINFO
 
-      - name: Publish AUR package
+      - name: Import GPG key
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          gpg-connect-agent reloadagent /bye
+
+      - name: Publish to AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/aur
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           eval $(ssh-agent -s)
           ssh-add ~/.ssh/aur
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
           git config --global user.name "Taylor Beeston"
           git config --global user.email "beeston.taylor@gmail.com"
+          git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2)
+          git config --global commit.gpgsign true
           git clone ssh://aur@aur.archlinux.org/image-colorizer.git aur-repo
-          cp PKGBUILD aur-repo/
+          cp PKGBUILD .SRCINFO aur-repo/
           cd aur-repo
-          git add PKGBUILD
-          git commit -S -m "Update to version $version"
+          git add PKGBUILD .SRCINFO
+          git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
+          echo $GPG_PASSPHRASE | gpg --passphrase-fd 0 --pinentry-mode loopback -b --yes
           git push
