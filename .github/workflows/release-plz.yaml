@@ -73,7 +73,7 @@ jobs:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          sudo -u builder bash << EOF
+          su builder
           mkdir -p ~/.ssh
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
@@ -90,4 +90,4 @@ jobs:
           git add PKGBUILD .SRCINFO
           echo $GPG_PASSPHRASE | git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
           git push
-          EOF
+          exit
