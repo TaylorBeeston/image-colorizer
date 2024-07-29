@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Install git and gnupg
-        run: pacman -Sy --noconfirm git gnupg
+        run: pacman -Syu --noconfirm git gnupg openssh
 
       - name: Update PKGBUILD
         run: |
@@ -79,6 +79,5 @@ jobs:
           cp PKGBUILD .SRCINFO aur-repo/
           cd aur-repo
           git add PKGBUILD .SRCINFO
-          git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
-          echo $GPG_PASSPHRASE | gpg --passphrase-fd 0 --pinentry-mode loopback -b --yes
+          echo $GPG_PASSPHRASE | git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
           git push
