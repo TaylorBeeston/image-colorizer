@@ -39,11 +39,6 @@ jobs:
       - name: Install git and gnupg
         run: pacman -Syu --noconfirm git gnupg openssh
 
-      - name: Create non-root user
-        run: |
-          useradd -m builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-
       - name: Update PKGBUILD
         run: |
           version=$(grep '^version =' Cargo.toml | sed 's/.*= "\(.*\)"/\1/')
@@ -53,27 +48,23 @@ jobs:
 
       - name: Generate .SRCINFO
         run: |
-          chown -R builder:builder .
-          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          runuser -unobody makepkg --printsrcinfo > .SRCINFO
 
       - name: Import GPG key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          sudo -u builder bash << EOF
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
           gpg-connect-agent reloadagent /bye
-          EOF
 
       - name: Publish to AUR
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          su builder
           mkdir -p ~/.ssh
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
@@ -90,4 +81,3 @@ jobs:
           git add PKGBUILD .SRCINFO
           echo $GPG_PASSPHRASE | git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
           git push
-          exit
