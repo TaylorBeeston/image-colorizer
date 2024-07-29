@@ -5,12 +5,22 @@ Now 🔥B l a z i n g F a s t🔥 thanks to 🦀Rust and 🖥️WGSL
 
 ## Install
 
-This project is available via crates.io
+![AUR Version](https://img.shields.io/aur/version/image-colorizer)
+![Crates.io Version](https://img.shields.io/crates/v/image-colorizer)
+
+### AUR
+
+```bash
+paru -Syu image-colorizer # Or whatever AUR helper you use. yay, pikaur, etc
+```
+
+### Cargo
+
 ```bash
 cargo install image-colorizer
 ```
 
-I am currently working on adding support for other package managers, such as the AUR, brew, etc.
+I am currently working on adding support for other package managers, such as the brew, deb, etc.
 
 ## Quick Start
 

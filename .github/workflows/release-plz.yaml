@@ -13,6 +13,8 @@ jobs:
   release-plz:
     name: Release-plz
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.releases_created }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,7 +24,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run release-plz
+      - id: release
+        name: Run release-plz
         uses: MarcoIeni/release-plz-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,6 +34,7 @@ jobs:
   publish-aur:
     needs: release-plz
     runs-on: ubuntu-latest
+    if: ${{ needs.release-plz.outputs.release_created }}
     container: 
       image: archlinux:base-devel
     steps:
