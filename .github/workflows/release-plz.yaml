@@ -53,7 +53,7 @@ jobs:
           chmod g+ws /home/build
           setfacl -m u::rwx,g::rwx /home/build
           setfacl -d --set u::rwx,g::rwx,o::- /home/build
-          BUILDDIR = /home/build runuser -unobody makepkg -- --printsrcinfo > .SRCINFO
+          BUILDDIR=/home/build runuser -unobody makepkg -- --printsrcinfo > .SRCINFO
 
       - name: Import GPG key
         env:
