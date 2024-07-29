@@ -75,7 +75,7 @@ jobs:
           chmod 600 ~/.ssh/aur
           eval $(ssh-agent -s)
           ssh-add ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
           git config --global user.name "Taylor Beeston"
           git config --global user.email "beeston.taylor@gmail.com"
           git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2)
