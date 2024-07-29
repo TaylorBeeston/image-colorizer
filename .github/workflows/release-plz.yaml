@@ -64,7 +64,10 @@ jobs:
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          gpg-connect-agent reloadagent /bye
+          echo "default-cache-ttl 34560000" >> ~/.gnupg/gpg-agent.conf
+          echo "max-cache-ttl 34560000" >> ~/.gnupg/gpg-agent.conf
+          echo "RELOADAGENT" | gpg-connect-agent
+          echo "$GPG_PASSPHRASE" | gpg --batch --passphrase-fd 0 --pinentry-mode loopback -s /dev/null
 
       - name: Publish to AUR
         env:
@@ -83,9 +86,10 @@ jobs:
           git config --global user.email "beeston.taylor@gmail.com"
           git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2)
           git config --global commit.gpgsign true
+          git config --global gpg.program "gpg --pinentry-mode loopback"
           git clone ssh://aur@aur.archlinux.org/image-colorizer.git aur-repo
           cp PKGBUILD .SRCINFO aur-repo/
           cd aur-repo
           git add PKGBUILD .SRCINFO
-          echo $GPG_PASSPHRASE | git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
+          git commit -S -m "Update to version $(grep -oP '(?<=pkgver=)\S+' PKGBUILD)"
           git push
