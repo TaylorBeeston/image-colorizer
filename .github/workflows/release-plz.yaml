@@ -48,6 +48,11 @@ jobs:
 
       - name: Generate .SRCINFO
         run: |
+          mkdir /home/build
+          chgrp nobody /home/build
+          chmod g+ws /home/build
+          setfacl -m u::rwx,g::rwx /home/build
+          setfacl -d --set u::rwx,g::rwx,o::- /home/build
           runuser -unobody makepkg -- --printsrcinfo > .SRCINFO
 
       - name: Import GPG key
