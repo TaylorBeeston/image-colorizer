@@ -71,11 +71,13 @@ jobs:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          mkdir -p ~/.ssh
-          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
+          mkdir -p /root/.ssh
+          chmod 700 /root/.ssh
+
+          echo "$AUR_SSH_PRIVATE_KEY" > /root/.ssh/aur
+          chmod 600 /root/.ssh/aur
           eval $(ssh-agent -s)
-          ssh-add ~/.ssh/aur
+          ssh-add /root/.ssh/aur
 
           # Debug: Print SSH key info
           ssh-add -l
@@ -84,12 +86,12 @@ jobs:
           ssh-keyscan -H aur.archlinux.org
           
           # Add host key with verbose output
-          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          ssh-keyscan -H aur.archlinux.org >> /root/.ssh/known_hosts
           
           # Debug: Test SSH connection
           ssh -Tvvv aur@aur.archlinux.org
 
-          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          ssh-keyscan -H aur.archlinux.org >> /root/.ssh/known_hosts
           git config --global user.name "Taylor Beeston"
           git config --global user.email "beeston.taylor@gmail.com"
           git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | cut -d'/' -f2)
