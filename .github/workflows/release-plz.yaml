@@ -48,7 +48,7 @@ jobs:
 
       - name: Generate .SRCINFO
         run: |
-          runuser -unobody makepkg --printsrcinfo > .SRCINFO
+          runuser -unobody makepkg -- --printsrcinfo > .SRCINFO
 
       - name: Import GPG key
         env:
