@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4](https://github.com/TaylorBeeston/image-colorizer/compare/v1.0.3...v1.0.4) - 2024-07-29
+
+### Other
+- :green_heart: If == 'true'
+- :memo: Update Readme about AUR support
+
 ## [1.0.3](https://github.com/TaylorBeeston/image-colorizer/compare/v1.0.2...v1.0.3) - 2024-07-29
 
 ### Other
