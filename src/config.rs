@@ -10,7 +10,10 @@ use std::sync::Arc;
 use clap::{App, Arg};
 use config::builder::DefaultState;
 use config::{ConfigBuilder, ConfigError, File};
+use futures::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use palette::{color_difference::ImprovedCiede2000, FromColor, Lab, Srgb};
+use reqwest;
 use serde_derive::Deserialize;
 use toml;
 
@@ -20,6 +23,7 @@ pub enum AppError {
     Image(image::ImageError),
     Config(ConfigError),
     Toml(toml::de::Error),
+    DownloadError(String),
     Other(String),
 }
 
@@ -30,6 +34,7 @@ impl std::fmt::Display for AppError {
             AppError::Image(err) => write!(f, "Image error: {}", err),
             AppError::Config(err) => write!(f, "Config error: {}", err),
             AppError::Toml(err) => write!(f, "TOML error: {}", err),
+            AppError::DownloadError(err) => write!(f, "Download error: {}", err),
             AppError::Other(err) => write!(f, "Error: {}", err),
         }
     }
@@ -64,6 +69,12 @@ impl From<toml::de::Error> for AppError {
 impl From<String> for AppError {
     fn from(err: String) -> AppError {
         AppError::Other(err)
+    }
+}
+
+impl From<reqwest::Error> for AppError {
+    fn from(err: reqwest::Error) -> Self {
+        AppError::DownloadError(err.to_string())
     }
 }
 
@@ -123,6 +134,95 @@ fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
     })
 }
 
+async fn load_colorscheme(name: &str, config_dir: &Path) -> Result<Vec<String>, AppError> {
+    let colorscheme_path = config_dir.join(format!("{}.txt", name));
+
+    if colorscheme_path.exists() {
+        // Load from local file
+        let colorscheme_str = fs::read_to_string(&colorscheme_path)?;
+        parse_and_validate_colorscheme(&colorscheme_str, name)
+    } else if name == "kanagawa" {
+        // Built-in colorscheme
+        Ok(KANAGAWA.iter().map(|&s| s.to_string()).collect())
+    } else {
+        // Show warning
+        eprintln!(
+            "Warning: Colorscheme '{}' not found locally. Attempting to download from GitHub...",
+            name
+        );
+
+        // Attempt to download from GitHub
+        match download_colorscheme_from_github(name).await {
+            Ok(colorscheme_str) => {
+                let colorscheme = parse_and_validate_colorscheme(&colorscheme_str, name)?;
+
+                // Save the downloaded scheme
+                if let Err(e) = save_colorscheme(&colorscheme_path, &colorscheme_str) {
+                    eprintln!("Warning: Failed to save downloaded colorscheme: {}", e);
+                }
+
+                Ok(colorscheme)
+            }
+            Err(e) => Err(e), // Propagate the error without additional wrapping
+        }
+    }
+}
+
+fn parse_and_validate_colorscheme(content: &str, name: &str) -> Result<Vec<String>, AppError> {
+    let colorscheme = parse_colorscheme(content);
+    if colorscheme.is_empty() {
+        Err(AppError::Other(format!("Colorscheme '{}' is empty", name)))
+    } else {
+        Ok(colorscheme)
+    }
+}
+
+async fn download_colorscheme_from_github(name: &str) -> Result<String, AppError> {
+    let url = format!(
+        "https://raw.githubusercontent.com/TaylorBeeston/image-colorizer/download-colorschemes/colorschemes/{}.txt",
+        name.to_lowercase()
+    );
+
+    let client = reqwest::Client::new();
+    let res = client.get(&url).send().await?;
+
+    // Check if the request was successful
+    if !res.status().is_success() {
+        return Err(AppError::DownloadError(format!(
+            "Failed to download colorscheme '{}'. HTTP status: {}",
+            name,
+            res.status()
+        )));
+    }
+
+    let total_size = res.content_length().unwrap_or(0);
+
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})").unwrap()
+        .progress_chars("#>-"));
+
+    let mut content = String::new();
+    let mut stream = res.bytes_stream();
+
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| AppError::DownloadError(e.to_string()))?;
+        content.push_str(&String::from_utf8_lossy(&chunk));
+        pb.inc(chunk.len() as u64);
+    }
+
+    pb.finish_with_message("Download complete");
+
+    Ok(content)
+}
+
+fn save_colorscheme(path: &Path, content: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, content)
+}
+
 fn parse_colorscheme(content: &str) -> Vec<String> {
     content
         .lines()
@@ -135,24 +235,6 @@ fn parse_colorscheme(content: &str) -> Vec<String> {
             }
         })
         .collect()
-}
-
-fn load_colorscheme(name: &str, config_dir: &Path) -> Result<Vec<String>, AppError> {
-    let colorscheme_path = config_dir.join(format!("{}.txt", name));
-    if colorscheme_path.exists() {
-        let colorscheme_str = fs::read_to_string(colorscheme_path)?;
-        let colorscheme = parse_colorscheme(&colorscheme_str);
-
-        if colorscheme.is_empty() {
-            Err(AppError::Other(format!("Colorscheme '{}' is empty", name)))
-        } else {
-            Ok(colorscheme)
-        }
-    } else if name == "kanagawa" {
-        Ok(KANAGAWA.iter().map(|&s| s.to_string()).collect())
-    } else {
-        Err(AppError::Other(format!("Colorscheme '{}' not found", name)))
-    }
 }
 
 fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
@@ -180,7 +262,7 @@ fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
     interpolated
 }
 
-pub fn init() -> Result<Arc<AppConfig>, AppError> {
+pub async fn init() -> Result<Arc<AppConfig>, AppError> {
     let matches = App::new("Image Colorizer")
         .version(VERSION)
         .author("Taylor Beeston")
@@ -249,7 +331,7 @@ pub fn init() -> Result<Arc<AppConfig>, AppError> {
     let input_output_pairs =
         generate_input_output_pairs(&input_paths, output_dir, &config.colorscheme)?;
 
-    let colors = load_colorscheme(&config.colorscheme, &config_dir)?;
+    let colors = load_colorscheme(&config.colorscheme, &config_dir).await?;
     let colors: Vec<Srgb<f32>> = colors.iter().map(|hex| hex_to_rgb(hex).unwrap()).collect();
 
     let blend_factor = matches
