@@ -16,7 +16,7 @@ use tokio::task;
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
-    let config = init()?;
+    let config = init().await?;
     let multi_progress = Arc::new(MultiProgress::new());
 
     let mut handles = Vec::new();
