@@ -76,7 +76,13 @@ struct SerializedAppConfig {
     spatial_averaging_radius: String,
 }
 
-fn load_config(config_path: Option<&str>) -> Result<SerializedAppConfig, AppError> {
+#[derive(Debug)]
+pub struct ConfigInfo {
+    config: SerializedAppConfig,
+    config_dir: PathBuf,
+}
+
+fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
     let mut builder = ConfigBuilder::default();
 
     builder = builder
@@ -86,32 +92,62 @@ fn load_config(config_path: Option<&str>) -> Result<SerializedAppConfig, AppErro
         .set_default("dither_amount", "0.1")?
         .set_default("spatial_averaging_radius", "10")?;
 
-    let default_config_path = dirs::home_dir()
+    let default_config_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from(""))
-        .join(".config/colorizer/config.toml");
+        .join(".config/image-colorizer");
+    let default_config_path = default_config_dir.join("config.toml");
 
-    if default_config_path.exists() {
+    let (config_path, config_dir) = if let Some(path) = config_path {
+        (
+            PathBuf::from(path),
+            PathBuf::from(path).parent().unwrap().to_path_buf(),
+        )
+    } else if default_config_path.exists() {
+        (default_config_path, default_config_dir)
+    } else {
+        (PathBuf::new(), default_config_dir)
+    };
+
+    if config_path.exists() {
         builder = ConfigBuilder::<DefaultState>::add_source(
             builder,
-            File::from(default_config_path).required(false),
+            File::from(config_path).required(false),
         );
-    }
-
-    if let Some(path) = config_path {
-        builder = builder.add_source(File::with_name(path).required(true));
     }
 
     let config = builder.build()?;
 
-    config.try_deserialize().map_err(AppError::from)
+    Ok(ConfigInfo {
+        config: config.try_deserialize()?,
+        config_dir,
+    })
+}
+
+fn parse_colorscheme(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.split("//").next().unwrap_or("").trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
 }
 
 fn load_colorscheme(name: &str, config_dir: &Path) -> Result<Vec<String>, AppError> {
-    let colorscheme_path = config_dir.join(format!("{}.toml", name));
+    let colorscheme_path = config_dir.join(format!("{}.txt", name));
     if colorscheme_path.exists() {
         let colorscheme_str = fs::read_to_string(colorscheme_path)?;
-        let colorscheme: Vec<String> = toml::from_str(&colorscheme_str)?;
-        Ok(colorscheme)
+        let colorscheme = parse_colorscheme(&colorscheme_str);
+
+        if colorscheme.is_empty() {
+            Err(AppError::Other(format!("Colorscheme '{}' is empty", name)))
+        } else {
+            Ok(colorscheme)
+        }
     } else if name == "kanagawa" {
         Ok(KANAGAWA.iter().map(|&s| s.to_string()).collect())
     } else {
@@ -149,7 +185,7 @@ pub fn init() -> Result<Arc<AppConfig>, AppError> {
         .version(VERSION)
         .author("Taylor Beeston")
         .about("Applies color schemes to images")
-        .after_help("Config should be a TOML that contains a colorscheme and a Blend Factor.\n\nBlend Factor is a [0.0-1.0] float. Higher values will make the image adhere more strictly to the colorscheme. Lower values will make artifacting less visible. Colorscheme is a string that should be the name of a TOML file (minus the extension) in the same directory as the config file. For example if 'kanagawa' is used as the name of the colorscheme string, there should be a 'kanagawa.toml' file in the same directory as the config file.")
+        .after_help("Config should be a TOML that contains a colorscheme and a Blend Factor.\n\nBlend Factor is a [0.0-1.0] float. Higher values will make the image adhere more strictly to the colorscheme. Lower values will make artifacting less visible. Colorscheme is a string that should be the name of a colorscheme txt file (minus the extension) in the same directory as the config file. For example if 'kanagawa' is used as the name of the colorscheme string, there should be a 'kanagawa.txt' file in the same directory as the config file.\n\nColorscheme files are simple files with one hex code per line and may optionally have comments using double slashes, e.g.\n\n// Grayscale\n#fff\n#000")
         .arg(
             Arg::with_name("Blend Factor")
                 .short('b')
@@ -184,7 +220,7 @@ pub fn init() -> Result<Arc<AppConfig>, AppError> {
             Arg::with_name("config")
                 .short('c')
                 .long("config")
-                .value_name("/path/to/image.png")
+                .value_name("/path/to/config.toml")
                 .help("Sets a custom config file")
                 .takes_value(true),
         )
@@ -205,7 +241,7 @@ pub fn init() -> Result<Arc<AppConfig>, AppError> {
         )
         .get_matches();
 
-    let config = load_config(matches.value_of("config"))?;
+    let ConfigInfo { config, config_dir } = load_config(matches.value_of("config"))?;
 
     let input_paths: Vec<&str> = matches.values_of("Image Paths").unwrap().collect();
     let output_dir = matches.value_of("output").map(PathBuf::from);
@@ -213,12 +249,8 @@ pub fn init() -> Result<Arc<AppConfig>, AppError> {
     let input_output_pairs =
         generate_input_output_pairs(&input_paths, output_dir, &config.colorscheme)?;
 
-    let config_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from(""))
-        .join(".config/colorizer");
-
     let colors = load_colorscheme(&config.colorscheme, &config_dir)?;
-    let colors: Vec<Srgb<f32>> = colors.iter().map(|hex| hex_to_rgb(hex)).collect();
+    let colors: Vec<Srgb<f32>> = colors.iter().map(|hex| hex_to_rgb(hex).unwrap()).collect();
 
     let blend_factor = matches
         .value_of("Blend Factor")
