@@ -179,7 +179,7 @@ fn parse_and_validate_colorscheme(content: &str, name: &str) -> Result<Vec<Strin
 
 async fn download_colorscheme_from_github(name: &str) -> Result<String, AppError> {
     let url = format!(
-        "https://raw.githubusercontent.com/TaylorBeeston/image-colorizer/download-colorschemes/colorschemes/{}.txt",
+        "https://raw.githubusercontent.com/TaylorBeeston/image-colorizer/main/colorschemes/{}.txt",
         name.to_lowercase()
     );
 
