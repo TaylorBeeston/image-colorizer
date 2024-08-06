@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/TaylorBeeston/image-colorizer/compare/v1.1.0...v1.1.1) - 2024-08-06
+
+### Other
+- :bug: Use main when resolving colorschemes
+- Merge branch 'download-colorschemes'
+- :sparkles: Implement resolving remote colorschemes
+- :sparkles: Add nord
+- :sparkles: Add colorschemes dir
+
 ## [1.0.5](https://github.com/TaylorBeeston/image-colorizer/compare/v1.0.4...v1.0.5) - 2024-08-06
 
 ### Other
