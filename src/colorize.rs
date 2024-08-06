@@ -31,14 +31,6 @@ struct Params {
     spatial_radius: u32,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct ScanParams {
-    width: u32,
-    height: u32,
-    is_horizontal: u32,
-}
-
 pub async fn colorize(
     img: &DynamicImage,
     config: &AppConfig,

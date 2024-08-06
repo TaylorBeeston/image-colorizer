@@ -82,6 +82,7 @@ impl From<reqwest::Error> for AppError {
 struct SerializedAppConfig {
     blend_factor: String,
     colorscheme: String,
+    interpolate_colors: bool,
     interpolation_threshold: String,
     dither_amount: String,
     spatial_averaging_radius: String,
@@ -99,6 +100,7 @@ fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
     builder = builder
         .set_default("blend_factor", "0.9")?
         .set_default("colorscheme", "kanagawa")?
+        .set_default("interpolate_colors", true)?
         .set_default("interpolation_threshold", "2.5")?
         .set_default("dither_amount", "0.1")?
         .set_default("spatial_averaging_radius", "10")?;
@@ -237,12 +239,11 @@ fn parse_colorscheme(content: &str) -> Vec<String> {
         .collect()
 }
 
-fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
-    let mut lab_colors: Vec<Lab> = colors.iter().map(|&c| Lab::from_color(c)).collect();
-    lab_colors.sort_by(|a, b| a.l.partial_cmp(&b.l).unwrap());
+fn interpolate_colors(mut colors: Vec<Lab>, threshold: f32) -> Vec<Lab> {
+    colors.sort_by(|a, b| a.l.partial_cmp(&b.l).unwrap());
 
     let mut interpolated = Vec::new();
-    for window in lab_colors.windows(2) {
+    for window in colors.windows(2) {
         let color1 = &window[0];
         let color2 = &window[1];
         interpolated.push(*color1);
@@ -257,7 +258,7 @@ fn interpolate_colors(colors: &[Srgb<f32>], threshold: f32) -> Vec<Lab> {
             }
         }
     }
-    interpolated.push(*lab_colors.last().unwrap());
+    interpolated.push(*colors.last().unwrap());
 
     interpolated
 }
@@ -273,41 +274,56 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
                 .short('b')
                 .long("blend-factor")
                 .value_name("FACTOR")
-                .help("[0.0-1.0] Overrides the blend factor set in config")
+                .help("[0.0-1.0] (Default: 0.9) Overrides the blend factor set in config")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("Interpolation Threshold")
                 .long("interpolation-threshold")
                 .value_name("THRESHOLD")
-                .help("[0.0-100.0] Overrides the interpolation threshold set in config")
+                .help("[0.0-100.0] (Default: 2.5) Overrides the interpolation threshold set in config")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("Interpolate Colors")
+                .short('i')
+                .long("interpolate-colors")
+                .takes_value(false)
+                .help("(Default: true) Sets whether or not to interpolate colors in the colorscheme for less artifacting")
         )
         .arg(
             Arg::with_name("Dither Amount")
                 .short('d')
                 .long("dither-amount")
                 .value_name("AMOUNT")
-                .help("[0.0-1.0] Overrides the dither amount set in config")
+                .help("[0.0-1.0] (Default: 0.1) Overrides the dither amount set in config")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("Spatial Averaging Radius")
                 .long("spatial-averaging-radius")
                 .value_name("RADIUS")
-                .help("[0-100] Overrides the spatial averaging radius set in config")
+                .help("[0-100] (Default: 10) Overrides the spatial averaging radius set in config")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("config")
+            Arg::with_name("Colorscheme")
+                .short('s')
+                .long("colorscheme")
+                .value_name("SCHEME")
+                .help("(Default: kanagawa) Sets the colorscheme to use")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("Config")
                 .short('c')
                 .long("config")
                 .value_name("/path/to/config.toml")
-                .help("Sets a custom config file")
+                .help("(Default: ~/.config/image-colorizer/config.toml) Sets a custom config file")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("output")
+            Arg::with_name("Output")
                 .short('o')
                 .long("output")
                 .value_name("OUTPUT_DIR")
@@ -331,8 +347,9 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
     let input_output_pairs =
         generate_input_output_pairs(&input_paths, output_dir, &config.colorscheme)?;
 
-    let colors = load_colorscheme(&config.colorscheme, &config_dir).await?;
-    let colors: Vec<Srgb<f32>> = colors.iter().map(|hex| hex_to_rgb(hex).unwrap()).collect();
+    let colorscheme = matches
+        .value_of("Colorscheme")
+        .unwrap_or(&config.colorscheme);
 
     let blend_factor = matches
         .value_of("Blend Factor")
@@ -341,6 +358,12 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
     let blend_factor: f32 = blend_factor
         .parse()
         .map_err(|e| format!("Failed to parse blend_factor: {}", e))?;
+
+    let should_interpolate_colors = if matches.contains_id("Interpolate Colors") {
+        matches.get_flag("Interpolate Colors")
+    } else {
+        config.interpolate_colors
+    };
 
     let interpolation_threshold = matches
         .value_of("Interpolation Threshold")
@@ -366,15 +389,23 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         .parse()
         .map_err(|e| format!("Failed to parse spatial_averaging_radius: {}", e))?;
 
+    let colors = load_colorscheme(colorscheme, &config_dir).await?;
+    let colors: Vec<Lab> = colors
+        .iter()
+        .map(|hex| Lab::from_color(hex_to_rgb(hex).unwrap()))
+        .collect();
+
     // Interpolate colors
-    let colors = interpolate_colors(&colors, interpolation_threshold);
+    let colors = if should_interpolate_colors {
+        interpolate_colors(colors, interpolation_threshold)
+    } else {
+        colors
+    };
 
     Ok(Arc::new(AppConfig {
         input_output_pairs,
         blend_factor,
-        colorscheme: config.colorscheme,
         colors,
-        interpolation_threshold,
         dither_amount,
         spatial_averaging_radius,
     }))
