@@ -12,7 +12,7 @@ use config::builder::DefaultState;
 use config::{ConfigBuilder, ConfigError, File};
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use palette::{color_difference::ImprovedCiede2000, FromColor, Lab, Srgb};
+use palette::{color_difference::ImprovedCiede2000, FromColor, Lab};
 use reqwest;
 use serde_derive::Deserialize;
 use toml;
@@ -268,42 +268,41 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         .version(VERSION)
         .author("Taylor Beeston")
         .about("Applies color schemes to images")
-        .after_help("Config should be a TOML that contains a colorscheme and a Blend Factor.\n\nBlend Factor is a [0.0-1.0] float. Higher values will make the image adhere more strictly to the colorscheme. Lower values will make artifacting less visible. Colorscheme is a string that should be the name of a colorscheme txt file (minus the extension) in the same directory as the config file. For example if 'kanagawa' is used as the name of the colorscheme string, there should be a 'kanagawa.txt' file in the same directory as the config file.\n\nColorscheme files are simple files with one hex code per line and may optionally have comments using double slashes, e.g.\n\n// Grayscale\n#fff\n#000")
+        .after_help("Colorscheme is a string that should be the name of a colorscheme txt file (minus the extension) in the same directory as the config file. For example if 'kanagawa' is used as the name of the colorscheme string, there should be a 'kanagawa.txt' file in the same directory as the config file. If the file is not found, a colorscheme with that name will attempt to be downloaded into your config directory from github.\n\nColorscheme files are simple files with one hex code per line and may optionally have comments using double slashes, e.g.\n\n// Grayscale\n#fff\n#000")
         .arg(
             Arg::with_name("Blend Factor")
                 .short('b')
                 .long("blend-factor")
                 .value_name("FACTOR")
-                .help("[0.0-1.0] (Default: 0.9) Overrides the blend factor set in config")
+                .help("[0.0-1.0] (Default: 0.9) Sets the blend factor, which allows part of the original image to come through. 0 = Just use the original image, 1 = Use only the colorized image")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("Interpolation Threshold")
                 .long("interpolation-threshold")
                 .value_name("THRESHOLD")
-                .help("[0.0-100.0] (Default: 2.5) Overrides the interpolation threshold set in config")
+                .help("[0.0-100.0] (Default: 2.5) Sets the maximum distance allowed in colorspace when interpolating the colorscheme. Lower values = More Interpolation, Higher vales = Less Interpolation. Must not set --no-interpolation for this to have an effect.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("Interpolate Colors")
-                .short('i')
-                .long("interpolate-colors")
+            Arg::with_name("No Interpolation")
+                .long("no-interpolation")
                 .takes_value(false)
-                .help("(Default: true) Sets whether or not to interpolate colors in the colorscheme for less artifacting")
+                .help("Disables color interpolation. Setting this causes interpolation threshold to do nothing")
         )
         .arg(
             Arg::with_name("Dither Amount")
                 .short('d')
                 .long("dither-amount")
                 .value_name("AMOUNT")
-                .help("[0.0-1.0] (Default: 0.1) Overrides the dither amount set in config")
+                .help("[0.0-1.0] (Default: 0.1) Sets the amount of dithering, which helps reduce artifacting by adding some randomness to the colorization process")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("Spatial Averaging Radius")
                 .long("spatial-averaging-radius")
                 .value_name("RADIUS")
-                .help("[0-100] (Default: 10) Overrides the spatial averaging radius set in config")
+                .help("[0-100] (Default: 10) Sets the Spatial Averaging Radius to use when performing spatial averaging. Spatial Averaging has each pixel use the colors of the pixels around it to get it's final color, reducing artifacting")
                 .takes_value(true),
         )
         .arg(
@@ -339,7 +338,7 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         )
         .get_matches();
 
-    let ConfigInfo { config, config_dir } = load_config(matches.value_of("config"))?;
+    let ConfigInfo { config, config_dir } = load_config(matches.value_of("Config"))?;
 
     let input_paths: Vec<&str> = matches.values_of("Image Paths").unwrap().collect();
     let output_dir = matches.value_of("output").map(PathBuf::from);
@@ -359,8 +358,8 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         .parse()
         .map_err(|e| format!("Failed to parse blend_factor: {}", e))?;
 
-    let should_interpolate_colors = if matches.contains_id("Interpolate Colors") {
-        matches.get_flag("Interpolate Colors")
+    let should_interpolate_colors = if matches.is_present("No Interpolation") {
+        false
     } else {
         config.interpolate_colors
     };
@@ -395,7 +394,6 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         .map(|hex| Lab::from_color(hex_to_rgb(hex).unwrap()))
         .collect();
 
-    // Interpolate colors
     let colors = if should_interpolate_colors {
         interpolate_colors(colors, interpolation_threshold)
     } else {
