@@ -343,12 +343,11 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
     let input_paths: Vec<&str> = matches.values_of("Image Paths").unwrap().collect();
     let output_dir = matches.value_of("output").map(PathBuf::from);
 
-    let input_output_pairs =
-        generate_input_output_pairs(&input_paths, output_dir, &config.colorscheme)?;
-
     let colorscheme = matches
         .value_of("Colorscheme")
         .unwrap_or(&config.colorscheme);
+
+    let input_output_pairs = generate_input_output_pairs(&input_paths, output_dir, &colorscheme)?;
 
     let blend_factor = matches
         .value_of("Blend Factor")

@@ -3,6 +3,8 @@
 **Never settle for images outside your colorscheme again!**
 Now 🔥B l a z i n g F a s t🔥 thanks to 🦀Rust and 🖥️WGSL
 
+![demo](https://github.com/user-attachments/assets/29cf09a4-df00-4873-a7d8-a0c87a7ed87b)
+
 ## Install
 
 ![AUR Version](https://img.shields.io/aur/version/image-colorizer)
