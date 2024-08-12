@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4](https://github.com/TaylorBeeston/image-colorizer/compare/v1.1.3...v1.1.4) - 2024-08-12
+
+### Other
+- :arrow_up: Bump release-plz version
+- :sparkles: Add more colorschemes
+
 ## [1.1.3](https://github.com/TaylorBeeston/image-colorizer/compare/v1.1.2...v1.1.3) - 2024-08-07
 
 ### Other
