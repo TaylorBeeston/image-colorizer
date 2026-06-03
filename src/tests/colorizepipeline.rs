@@ -36,7 +36,7 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
         spatial_averaging_radius: 1,
     };
 
-    let colorizer = GpuColorizer::new(&config)
+    let mut colorizer = GpuColorizer::new(&config)
         .await
         .expect("GPU colorizer should initialize");
 
