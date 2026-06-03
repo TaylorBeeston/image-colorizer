@@ -22,11 +22,12 @@ paru -Syu image-colorizer # Or whatever AUR helper you use. yay, pikaur, etc
 cargo install image-colorizer
 ```
 
-I am currently working on adding support for other package managers, such as the brew, deb, etc.
+Additional package-manager support may be added later.
 
 ## Quick Start
 
 ### Single Image
+
 ```bash
 image-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jpg
 ```
@@ -39,14 +40,14 @@ image-colorizer -o ./processed_images input_image1.jpg input_image2.png
 
 ## Features
 
-- 🔥 GPU-accelerated image processing using WebGPU Shading Language (WGSL)
-- 🎨 Support for custom color schemes
-- 🥷 Minimal artifacting through advanced color blending techniques
-- 🤹 Parallel processing of multiple images
+- GPU-resident image processing using WebGPU Shading Language (WGSL)
+- Custom local colorschemes, with missing built-in schemes downloaded automatically
+- Colorscheme interpolation, dithering, and spatial averaging to reduce banding/artifacts
+- Efficient batch processing with one reusable GPU renderer and overlapped image decode/save
 
 ## Prerequisites
 
-Before you begin, ensure you have a GPU that supports WebGPU
+Before you begin, ensure you have a GPU that supports WebGPU.
 
 ## Usage
 
@@ -58,15 +59,16 @@ image-colorizer [OPTIONS] <IMAGE_PATHS>...
 
 ### Options
 
-- `-b, --blend-factor <FACTOR>`: Set the blend factor (0.0-1.0)
-- `--interpolation-threshold <THRESHOLD>`: Set the interpolation threshold (>0.0 and <=100.0)
+- `-b, --blend-factor <FACTOR>`: Set the blend factor, from `0.0` to `1.0` (default: `0.9`)
+- `--interpolation-threshold <THRESHOLD>`: Set the colorscheme interpolation threshold, greater than `0.0` and up to `100.0` (default: `2.5`)
 - `--no-interpolation`: Disable colorscheme interpolation
-- `-d, --dither-amount <AMOUNT>`: Set the dither amount (0.0-1.0)
-- `--spatial-averaging-radius <RADIUS>`: Set the spatial averaging radius (0-100)
-- `-s, --colorscheme <SCHEME>`: Set the colorscheme
-- `-c, --config <CONFIG_FILE>`: Specify a custom config file
+- `-d, --dither-amount <AMOUNT>`: Set the dithering amount, from `0.0` to `1.0` (default: `0.1`)
+- `--spatial-averaging-radius <RADIUS>`: Set the spatial averaging radius, from `0` to `100` (default: `10`)
+- `-s, --colorscheme <SCHEME>`: Set the colorscheme (default: `kanagawa`)
+- `-c, --config <CONFIG_FILE>`: Specify a custom config file (default: `~/.config/image-colorizer/config.toml`)
 - `-o, --output <OUTPUT_DIR>`: Set the output directory
 - `-h, --help`: Print help information
+- `-V, --version`: Print version information
 
 ## Configuration
 
@@ -81,42 +83,45 @@ dither_amount = "0.1"
 spatial_averaging_radius = "10"
 ```
 
-You can also create custom color schemes by adding a text file with one hex color per line in `~/.config/image-colorizer/`. For example, `~/.config/image-colorizer/grayscale.txt` can be selected with `--colorscheme grayscale`.
+You can also create custom color schemes by adding a text file with one hex color per line in `~/.config/image-colorizer/`. Lines may include comments with `//`. For example, `~/.config/image-colorizer/grayscale.txt` can be selected with `--colorscheme grayscale`.
+
+If a requested colorscheme is not found beside the config file, Image Colorizer attempts to download `<colorscheme>.txt` from this repository's `colorschemes/` directory into your config directory.
 
 ## How It Works
 
-The Image Colorizer uses a combination of CPU and GPU processing to transform images. Here's an overview of the process:
+Image Colorizer initializes one reusable WebGPU renderer per command. Image decoding and output saving happen on CPU worker threads, but the colorization pipeline itself stays on the GPU until the final packed RGB readback.
 
 ```mermaid
 graph TD
-    A[Load Colorscheme] -->|CPU| B[Interpolate Colorscheme]
-    B --> C[Load Image]
-    C --> D[Initialize GPU]
-    D --> E[Pass Image to GPU]
-    E --> F[Find Closest Colors]
-    F --> G[Apply Dithering]
-    G --> H[Pass Image back to CPU]
-    H --> I[Create Summed Area Table SAT]
-    I --> J[Pass SAT to GPU]
-    J --> K[Perform Spatial Averaging]
-    K --> L[Transfer Luminance from Original]
-    L --> M[Pass Final Image to CPU]
-    M --> N[Save Processed Image]
+    A["Parse CLI and config"] --> B["Load colorscheme"]
+    B --> C{"Interpolation enabled?"}
+    C -->|yes| D["Interpolate colors in Lab space on CPU"]
+    C -->|no| E["Use colorscheme as-is"]
+    D --> F["Initialize reusable WebGPU renderer"]
+    E --> F
+    F --> G["Decode first image on CPU"]
+    G --> H["Upload RGB pixels to reused GPU input buffer"]
+    H --> I["GPU pass 1: closest palette color, dithering, quantized RGB plus Lab"]
+    I --> J["GPU pass 2: horizontal Lab spatial average"]
+    J --> K["GPU pass 3: vertical spatial average, luminance transfer, packed RGB output"]
+    K --> L["Read packed RGB output to recycled CPU byte buffer"]
+    L --> M["Save image on CPU worker thread"]
+    M --> N{"More images?"}
+    N -->|yes| O["Decode next image while previous output saves"]
+    O --> H
+    N -->|no| P["Done"]
 ```
 
-1. The colorscheme is loaded and interpolated on the CPU to fill gaps in color space.
-2. The input image is loaded via CPU.
-3. The GPU is initialized with WebGPU.
-4. The image data is transferred to the GPU.
-5. For each pixel, the closest color from the interpolated color scheme is found.
-6. Dithering is applied to reduce color banding.
-7. The processed image is passed back to the CPU.
-8. A Summed Area Table (SAT) is created for efficient spatial averaging.
-9. The SAT is passed back to the GPU.
-10. Spatial averaging is performed using the SAT.
-11. Luminance is transferred from the original image to preserve detail.
-12. The final processed image is transferred back to the CPU.
-13. The resulting image is saved to disk.
+1. CLI options and config are merged.
+2. The colorscheme is loaded locally or downloaded, then optionally interpolated in Lab color space.
+3. A single WebGPU device, queue, shader set, pipeline set, palette buffer, and scratch-buffer set are reused across the batch.
+4. Each input image is decoded on a CPU worker thread.
+5. RGB pixels are uploaded into the reusable GPU input buffer.
+6. The first GPU pass finds the closest colorscheme color, applies dithering, stores quantized RGB, and keeps Lab values needed by later passes.
+7. The second GPU pass computes the horizontal half of the spatial average in Lab space.
+8. The third GPU pass computes the vertical half of the spatial average, transfers averaged chroma onto the pixel luminance, blends with the original color, and packs RGB output.
+9. Packed RGB is read back once into a recycled CPU byte buffer.
+10. The output image is saved on a CPU worker thread while the next image is decoded/processed.
 
 ## Contributing
 
