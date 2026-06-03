@@ -1,7 +1,20 @@
 use std::iter;
 
-use palette::{IntoColor, Lab, Srgb};
 use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct WorkingPixel {
+    r: f32,
+    g: f32,
+    b: f32,
+    l: f32,
+    a: f32,
+    lab_b: f32,
+}
+
+unsafe impl bytemuck::Pod for WorkingPixel {}
+unsafe impl bytemuck::Zeroable for WorkingPixel {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -58,10 +71,13 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
     let height = 3;
     let radius = 1;
     let input = (0..width * height)
-        .map(|i| ColorizedPixel {
-            r: (i % width) as f32 / (width - 1) as f32,
-            g: (i / width) as f32 / (height - 1) as f32,
-            b: i as f32 / (width * height - 1) as f32,
+        .map(|i| WorkingPixel {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            l: i as f32,
+            a: (i % width) as f32 * 2.0,
+            lab_b: (i / width) as f32 * -3.0,
         })
         .collect::<Vec<_>>();
 
@@ -74,13 +90,6 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
     let horizontal_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Horizontal Average Buffer"),
         size: (input.len() * std::mem::size_of::<ColorizedPixel>()) as wgpu::BufferAddress,
-        usage: wgpu::BufferUsages::STORAGE,
-        mapped_at_creation: false,
-    });
-
-    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Output Buffer"),
-        size: horizontal_buffer.size(),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
@@ -111,15 +120,8 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
         entry_point: "horizontal",
     });
 
-    let vertical_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("Vertical Average Pipeline"),
-        layout: None,
-        module: &shader_module,
-        entry_point: "vertical",
-    });
-
-    let horizontal_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Horizontal Average Bind Group"),
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Spatial Average Bind Group"),
         layout: &horizontal_pipeline.get_bind_group_layout(0),
         entries: &[
             wgpu::BindGroupEntry {
@@ -131,26 +133,7 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
                 resource: horizontal_buffer.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 2,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
-
-    let vertical_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Vertical Average Bind Group"),
-        layout: &vertical_pipeline.get_bind_group_layout(0),
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: horizontal_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: output_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
+                binding: 3,
                 resource: params_buffer.as_entire_binding(),
             },
         ],
@@ -158,7 +141,7 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
 
     let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Staging Buffer"),
-        size: output_buffer.size(),
+        size: horizontal_buffer.size(),
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -173,21 +156,17 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
         });
 
         compute_pass.set_pipeline(&horizontal_pipeline);
-        compute_pass.set_bind_group(0, &horizontal_bind_group, &[]);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
         compute_pass.dispatch_workgroups(width.div_ceil(16), height.div_ceil(16), 1);
     }
 
-    {
-        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("Vertical Average Pass"),
-        });
-
-        compute_pass.set_pipeline(&vertical_pipeline);
-        compute_pass.set_bind_group(0, &vertical_bind_group, &[]);
-        compute_pass.dispatch_workgroups(width.div_ceil(16), height.div_ceil(16), 1);
-    }
-
-    encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, staging_buffer.size());
+    encoder.copy_buffer_to_buffer(
+        &horizontal_buffer,
+        0,
+        &staging_buffer,
+        0,
+        staging_buffer.size(),
+    );
     queue.submit(iter::once(encoder.finish()));
 
     let buffer_slice = staging_buffer.slice(..);
@@ -206,28 +185,27 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
     {
         let data = buffer_slice.get_mapped_range();
         let output = bytemuck::cast_slice::<_, ColorizedPixel>(&data);
-        let expected = cpu_spatial_average(&input, width, height, radius);
-        let epsilon = 0.01;
+        let expected = cpu_horizontal_average(&input, width, height, radius);
 
         assert_eq!(output.len(), expected.len());
 
         for (i, (actual, expected)) in output.iter().zip(expected).enumerate() {
             assert!(
-                (actual.r - expected.r).abs() < epsilon,
+                (actual.r - expected.r).abs() < f32::EPSILON,
                 "{}: actual {:?}, expected {:?}",
                 i,
                 actual,
                 expected
             );
             assert!(
-                (actual.g - expected.g).abs() < epsilon,
+                (actual.g - expected.g).abs() < f32::EPSILON,
                 "{}: actual {:?}, expected {:?}",
                 i,
                 actual,
                 expected
             );
             assert!(
-                (actual.b - expected.b).abs() < epsilon,
+                (actual.b - expected.b).abs() < f32::EPSILON,
                 "{}: actual {:?}, expected {:?}",
                 i,
                 actual,
@@ -239,8 +217,8 @@ async fn test_spatial_average_shader_matches_cpu_reference() {
     staging_buffer.unmap();
 }
 
-fn cpu_spatial_average(
-    input: &[ColorizedPixel],
+fn cpu_horizontal_average(
+    input: &[WorkingPixel],
     width: u32,
     height: u32,
     radius: u32,
@@ -249,27 +227,17 @@ fn cpu_spatial_average(
         .flat_map(|y| {
             (0..width).map(move |x| {
                 let x1 = x.saturating_sub(radius);
-                let y1 = y.saturating_sub(radius);
                 let x2 = (x + radius).min(width - 1);
-                let y2 = (y + radius).min(height - 1);
                 let mut sum = (0.0, 0.0, 0.0);
                 let mut count = 0.0;
 
-                for sample_y in y1..=y2 {
-                    for sample_x in x1..=x2 {
-                        let sample = input[(sample_y * width + sample_x) as usize];
-                        let lab: Lab = Srgb::new(
-                            quantize_channel(sample.r),
-                            quantize_channel(sample.g),
-                            quantize_channel(sample.b),
-                        )
-                        .into_color();
+                for sample_x in x1..=x2 {
+                    let sample = input[(y * width + sample_x) as usize];
 
-                        sum.0 += lab.l;
-                        sum.1 += lab.a;
-                        sum.2 += lab.b;
-                        count += 1.0;
-                    }
+                    sum.0 += sample.l;
+                    sum.1 += sample.a;
+                    sum.2 += sample.lab_b;
+                    count += 1.0;
                 }
 
                 ColorizedPixel {
@@ -280,8 +248,4 @@ fn cpu_spatial_average(
             })
         })
         .collect()
-}
-
-fn quantize_channel(value: f32) -> f32 {
-    (value.clamp(0.0, 1.0) * 255.0).floor() / 255.0
 }

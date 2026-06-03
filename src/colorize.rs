@@ -17,6 +17,20 @@ unsafe impl bytemuck::Pod for ColorizedPixel {}
 unsafe impl bytemuck::Zeroable for ColorizedPixel {}
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct WorkingPixel {
+    r: f32,
+    g: f32,
+    b: f32,
+    l: f32,
+    a: f32,
+    lab_b: f32,
+}
+
+unsafe impl bytemuck::Pod for WorkingPixel {}
+unsafe impl bytemuck::Zeroable for WorkingPixel {}
+
+#[repr(C)]
 #[derive(Copy, Clone)]
 struct Params {
     width: u32,
@@ -42,9 +56,8 @@ struct FrameBuffers {
     output_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
     pass1_bind_group: wgpu::BindGroup,
-    horizontal_average_bind_group: wgpu::BindGroup,
-    vertical_average_bind_group: wgpu::BindGroup,
-    pass3_bind_group: wgpu::BindGroup,
+    horizontal_bind_group: wgpu::BindGroup,
+    vertical_final_bind_group: wgpu::BindGroup,
     params_buffer: wgpu::Buffer,
 }
 
@@ -54,8 +67,7 @@ pub struct GpuColorizer {
     color_palette_buffer: wgpu::Buffer,
     pass1_pipeline: wgpu::ComputePipeline,
     horizontal_average_pipeline: wgpu::ComputePipeline,
-    vertical_average_pipeline: wgpu::ComputePipeline,
-    pass3_pipeline: wgpu::ComputePipeline,
+    vertical_final_pipeline: wgpu::ComputePipeline,
     blend_factor: f32,
     dither_amount: f32,
     spatial_averaging_radius: u32,
@@ -114,11 +126,6 @@ impl GpuColorizer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/spatial_average.wgsl").into()),
         });
 
-        let pass3_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Colorize Pass 3 Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/colorize_pass3.wgsl").into()),
-        });
-
         let pass1_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Colorize Pass 1 Pipeline"),
             layout: None,
@@ -126,8 +133,6 @@ impl GpuColorizer {
             entry_point: "main",
         });
 
-        // A rectangular box average is separable, so the former CPU summed-area table pass
-        // is now two GPU passes: average each row, then average those row results by column.
         let horizontal_average_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Horizontal Spatial Average Pipeline"),
@@ -136,20 +141,13 @@ impl GpuColorizer {
                 entry_point: "horizontal",
             });
 
-        let vertical_average_pipeline =
+        let vertical_final_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Vertical Spatial Average Pipeline"),
+                label: Some("Vertical Spatial Average and Final Color Pipeline"),
                 layout: None,
                 module: &spatial_shader,
-                entry_point: "vertical",
+                entry_point: "vertical_final",
             });
-
-        let pass3_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Colorize Pass 3 Pipeline"),
-            layout: None,
-            module: &pass3_shader,
-            entry_point: "main",
-        });
 
         Ok(Self {
             device,
@@ -157,8 +155,7 @@ impl GpuColorizer {
             color_palette_buffer,
             pass1_pipeline,
             horizontal_average_pipeline,
-            vertical_average_pipeline,
-            pass3_pipeline,
+            vertical_final_pipeline,
             blend_factor: config.blend_factor,
             dither_amount: config.dither_amount,
             spatial_averaging_radius: config.spatial_averaging_radius,
@@ -175,7 +172,7 @@ impl GpuColorizer {
     ) -> Result<RenderedImage> {
         let (width, height) = img.dimensions();
 
-        pb.set_length(4);
+        pb.set_length(3);
 
         self.ensure_frame_buffers(width, height);
         self.upload_input(img);
@@ -213,7 +210,7 @@ impl GpuColorizer {
         dispatch(
             &mut encoder,
             &self.horizontal_average_pipeline,
-            &buffers.horizontal_average_bind_group,
+            &buffers.horizontal_bind_group,
             width,
             height,
             "Horizontal Spatial Average",
@@ -222,21 +219,11 @@ impl GpuColorizer {
 
         dispatch(
             &mut encoder,
-            &self.vertical_average_pipeline,
-            &buffers.vertical_average_bind_group,
+            &self.vertical_final_pipeline,
+            &buffers.vertical_final_bind_group,
             width,
             height,
-            "Vertical Spatial Average",
-        );
-        pb.inc(1);
-
-        dispatch(
-            &mut encoder,
-            &self.pass3_pipeline,
-            &buffers.pass3_bind_group,
-            width,
-            height,
-            "Colorize Pass 3",
+            "Vertical Spatial Average and Final Color",
         );
         encoder.copy_buffer_to_buffer(
             &buffers.output_buffer,
@@ -318,35 +305,28 @@ impl GpuColorizer {
 
 impl FrameBuffers {
     fn new(colorizer: &GpuColorizer, width: u32, height: u32) -> Self {
-        let input_buffer = create_storage_buffer(
+        let input_buffer = create_storage_buffer::<ColorizedPixel>(
             &colorizer.device,
             width,
             height,
             wgpu::BufferUsages::COPY_DST,
             "Input Buffer",
         );
-        let pass1_buffer = create_storage_buffer(
+        let pass1_buffer = create_storage_buffer::<WorkingPixel>(
             &colorizer.device,
             width,
             height,
             wgpu::BufferUsages::empty(),
             "Pass 1 Buffer",
         );
-        let horizontal_average_buffer = create_storage_buffer(
+        let horizontal_average_buffer = create_storage_buffer::<ColorizedPixel>(
             &colorizer.device,
             width,
             height,
             wgpu::BufferUsages::empty(),
             "Horizontal Average Buffer",
         );
-        let spatial_average_buffer = create_storage_buffer(
-            &colorizer.device,
-            width,
-            height,
-            wgpu::BufferUsages::empty(),
-            "Spatial Average Buffer",
-        );
-        let output_buffer = create_storage_buffer(
+        let output_buffer = create_storage_buffer::<u32>(
             &colorizer.device,
             width,
             height,
@@ -386,7 +366,7 @@ impl FrameBuffers {
                 ],
             });
 
-        let horizontal_average_bind_group =
+        let horizontal_bind_group =
             colorizer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -404,58 +384,37 @@ impl FrameBuffers {
                             resource: horizontal_average_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 2,
+                            binding: 3,
                             resource: params_buffer.as_entire_binding(),
                         },
                     ],
                 });
 
-        let vertical_average_bind_group =
+        let vertical_final_bind_group =
             colorizer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Vertical Spatial Average Bind Group"),
-                    layout: &colorizer.vertical_average_pipeline.get_bind_group_layout(0),
+                    label: Some("Vertical Spatial Average and Final Color Bind Group"),
+                    layout: &colorizer.vertical_final_pipeline.get_bind_group_layout(0),
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: horizontal_average_buffer.as_entire_binding(),
+                            resource: pass1_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: spatial_average_buffer.as_entire_binding(),
+                            resource: horizontal_average_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
+                            resource: output_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
                             resource: params_buffer.as_entire_binding(),
                         },
                     ],
                 });
-
-        let pass3_bind_group = colorizer
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Colorize Pass 3 Bind Group"),
-                layout: &colorizer.pass3_pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: pass1_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: spatial_average_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: output_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: params_buffer.as_entire_binding(),
-                    },
-                ],
-            });
 
         Self {
             width,
@@ -464,9 +423,8 @@ impl FrameBuffers {
             output_buffer,
             staging_buffer,
             pass1_bind_group,
-            horizontal_average_bind_group,
-            vertical_average_bind_group,
-            pass3_bind_group,
+            horizontal_bind_group,
+            vertical_final_bind_group,
             params_buffer,
         }
     }
@@ -509,15 +467,15 @@ async fn read_output_buffer(
         .context("Failed to map output buffer")?;
 
     let data = buffer_slice.get_mapped_range();
-    let result = bytemuck::cast_slice::<_, ColorizedPixel>(&data);
+    let result = bytemuck::cast_slice::<_, u32>(&data);
 
     output_data.clear();
     output_data.resize(width as usize * height as usize * 3, 0);
 
     for (pixel, output) in result.iter().zip(output_data.chunks_exact_mut(3)) {
-        output[0] = (pixel.r * 255.0) as u8;
-        output[1] = (pixel.g * 255.0) as u8;
-        output[2] = (pixel.b * 255.0) as u8;
+        output[0] = (pixel & 0xff) as u8;
+        output[1] = ((pixel >> 8) & 0xff) as u8;
+        output[2] = ((pixel >> 16) & 0xff) as u8;
     }
 
     drop(data);
@@ -526,7 +484,7 @@ async fn read_output_buffer(
     Ok(())
 }
 
-fn create_storage_buffer(
+fn create_storage_buffer<T>(
     device: &wgpu::Device,
     width: u32,
     height: u32,
@@ -535,7 +493,7 @@ fn create_storage_buffer(
 ) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
-        size: frame_buffer_size(width, height),
+        size: frame_buffer_size::<T>(width, height),
         usage: wgpu::BufferUsages::STORAGE | usage,
         mapped_at_creation: false,
     })
@@ -544,13 +502,12 @@ fn create_storage_buffer(
 fn create_staging_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Staging Buffer"),
-        size: frame_buffer_size(width, height),
+        size: frame_buffer_size::<u32>(width, height),
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
 }
 
-fn frame_buffer_size(width: u32, height: u32) -> wgpu::BufferAddress {
-    (std::mem::size_of::<ColorizedPixel>() * width as usize * height as usize)
-        as wgpu::BufferAddress
+fn frame_buffer_size<T>(width: u32, height: u32) -> wgpu::BufferAddress {
+    (std::mem::size_of::<T>() * width as usize * height as usize) as wgpu::BufferAddress
 }

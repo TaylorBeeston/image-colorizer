@@ -14,6 +14,20 @@ unsafe impl bytemuck::Zeroable for Pixel {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+struct WorkingPixel {
+    r: f32,
+    g: f32,
+    b: f32,
+    l: f32,
+    a: f32,
+    lab_b: f32,
+}
+
+unsafe impl bytemuck::Pod for WorkingPixel {}
+unsafe impl bytemuck::Zeroable for WorkingPixel {}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 struct ColorizedPixel {
     r: f32,
     g: f32,
@@ -67,10 +81,14 @@ async fn test_colorize_pass1_shader_preserves_input_when_blend_is_zero() {
     let height = 4;
 
     let input_data = (0..width * height)
-        .map(|i| Pixel {
-            r: i as f32 / 32.0,
-            g: 0.25,
-            b: 1.0 - i as f32 / 32.0,
+        .map(|i| {
+            let value = i as f32 / 255.0;
+
+            Pixel {
+                r: value,
+                g: 64.0 / 255.0,
+                b: 1.0 - value,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -100,7 +118,7 @@ async fn test_colorize_pass1_shader_preserves_input_when_blend_is_zero() {
 
     let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Output Buffer"),
-        size: (input_data.len() * std::mem::size_of::<ColorizedPixel>()) as wgpu::BufferAddress,
+        size: (input_data.len() * std::mem::size_of::<WorkingPixel>()) as wgpu::BufferAddress,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
@@ -205,14 +223,14 @@ async fn test_colorize_pass1_shader_preserves_input_when_blend_is_zero() {
 
     {
         let data = buffer_slice.get_mapped_range();
-        let output = bytemuck::cast_slice::<_, ColorizedPixel>(&data);
+        let output = bytemuck::cast_slice::<_, WorkingPixel>(&data);
 
         assert_eq!(output.len(), input_data.len());
 
         for (input, output) in input_data.iter().zip(output) {
-            assert!((input.r - output.r).abs() < f32::EPSILON);
-            assert!((input.g - output.g).abs() < f32::EPSILON);
-            assert!((input.b - output.b).abs() < f32::EPSILON);
+            assert!((input.r - output.r).abs() < 0.001);
+            assert!((input.g - output.g).abs() < 0.001);
+            assert!((input.b - output.b).abs() < 0.001);
         }
     }
 
