@@ -342,7 +342,7 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
             Arg::with_name("Interpolation Threshold")
                 .long("interpolation-threshold")
                 .value_name("THRESHOLD")
-                .help("[0.0-100.0] (Default: 2.5) Sets the maximum distance allowed in colorspace when interpolating the colorscheme. Lower values = More Interpolation, Higher vales = Less Interpolation. Must not set --no-interpolation for this to have an effect.")
+                .help("(>0.0 and <=100.0) (Default: 2.5) Sets the maximum distance allowed in colorspace when interpolating the colorscheme. Lower values = more interpolation, higher values = less interpolation. Must not set --no-interpolation for this to have an effect.")
                 .takes_value(true),
         )
         .arg(
@@ -363,7 +363,7 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
             Arg::with_name("Spatial Averaging Radius")
                 .long("spatial-averaging-radius")
                 .value_name("RADIUS")
-                .help("[0-100] (Default: 10) Sets the Spatial Averaging Radius to use when performing spatial averaging. Spatial Averaging has each pixel use the colors of the pixels around it to get it's final color, reducing artifacting")
+                .help("[0-100] (Default: 10) Sets the spatial averaging radius. Spatial averaging has each pixel use the colors of the pixels around it to get its final color, reducing artifacting")
                 .takes_value(true),
         )
         .arg(

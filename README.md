@@ -28,7 +28,7 @@ I am currently working on adding support for other package managers, such as the
 
 ### Single Image
 ```bash
-image-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jgp
+image-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jpg
 ```
 
 ### Multiple Images
@@ -59,30 +59,33 @@ image-colorizer [OPTIONS] <IMAGE_PATHS>...
 ### Options
 
 - `-b, --blend-factor <FACTOR>`: Set the blend factor (0.0-1.0)
-- `--interpolation-threshold <THRESHOLD>`: Set the interpolation threshold (0.0-100.0)
+- `--interpolation-threshold <THRESHOLD>`: Set the interpolation threshold (>0.0 and <=100.0)
+- `--no-interpolation`: Disable colorscheme interpolation
 - `-d, --dither-amount <AMOUNT>`: Set the dither amount (0.0-1.0)
 - `--spatial-averaging-radius <RADIUS>`: Set the spatial averaging radius (0-100)
+- `-s, --colorscheme <SCHEME>`: Set the colorscheme
 - `-c, --config <CONFIG_FILE>`: Specify a custom config file
 - `-o, --output <OUTPUT_DIR>`: Set the output directory
 - `-h, --help`: Print help information
 
 ## Configuration
 
-You can customize the colorizer's behavior by creating a configuration file. The default location for the config file is `~/.config/colorizer/config.toml`. Here's an example configuration:
+You can customize the colorizer's behavior by creating a configuration file. The default location for the config file is `~/.config/image-colorizer/config.toml`. Here's an example configuration:
 
 ```toml
 blend_factor = "0.9"
 colorscheme = "kanagawa"
+interpolate_colors = true
 interpolation_threshold = "2.5"
 dither_amount = "0.1"
 spatial_averaging_radius = "10"
 ```
 
-You can also create custom color schemes by adding a TOML file with the color values in the `~/.config/colorizer/` directory.
+You can also create custom color schemes by adding a text file with one hex color per line in `~/.config/image-colorizer/`. For example, `~/.config/image-colorizer/grayscale.txt` can be selected with `--colorscheme grayscale`.
 
 ## How It Works
 
-he Image Colorizer uses a sophisticated combination of CPU and GPU processing to efficiently transform images. Here's a detailed overview of the process:
+The Image Colorizer uses a combination of CPU and GPU processing to transform images. Here's an overview of the process:
 
 ```mermaid
 graph TD
