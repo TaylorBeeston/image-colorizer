@@ -1,9 +1,7 @@
 use image::{DynamicImage, ImageBuffer, Rgb};
-use indicatif::ProgressBar;
 use palette::Lab;
 
-use crate::colorize::GpuColorizer;
-use crate::types::AppConfig;
+use crate::{ColorizerConfig, GpuColorizer};
 
 #[tokio::test]
 async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
@@ -28,8 +26,7 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
         _ => Rgb([255, 255, 255]),
     });
 
-    let config = AppConfig {
-        input_output_pairs: Vec::new(),
+    let config = ColorizerConfig {
         blend_factor: 0.0,
         colors: vec![Lab::new(0.0, 0.0, 0.0), Lab::new(100.0, 0.0, 0.0)],
         dither_amount: 0.0,
@@ -41,10 +38,7 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
         .expect("GPU colorizer should initialize");
 
     let output = colorizer
-        .colorize(
-            &DynamicImage::ImageRgb8(input.clone()),
-            &ProgressBar::hidden(),
-        )
+        .colorize(&DynamicImage::ImageRgb8(input.clone()))
         .await
         .expect("GPU colorize pipeline should complete");
 
@@ -59,10 +53,7 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
     });
 
     let second_output = colorizer
-        .colorize(
-            &DynamicImage::ImageRgb8(second_input.clone()),
-            &ProgressBar::hidden(),
-        )
+        .colorize(&DynamicImage::ImageRgb8(second_input.clone()))
         .await
         .expect("reused GPU colorizer should complete");
 

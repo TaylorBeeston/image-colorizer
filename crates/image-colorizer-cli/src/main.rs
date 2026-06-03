@@ -1,14 +1,8 @@
-mod colorize;
-mod colors;
 mod config;
 mod constants;
-#[cfg(test)]
-mod tests;
-mod types;
-mod utils;
 
-use crate::colorize::{GpuColorizer, RenderedImage};
 use crate::config::{init, AppError};
+use image_colorizer_core::{ColorizeStage, GpuColorizer, RenderedImage};
 
 use std::path::Path;
 
@@ -40,7 +34,7 @@ async fn main() {
 async fn run() -> Result<(), AppError> {
     let config = init().await?;
     let multi_progress = MultiProgress::new();
-    let mut colorizer = GpuColorizer::new(&config).await?;
+    let mut colorizer = GpuColorizer::new(&config.colorizer).await?;
     let mut input_output_pairs = config.input_output_pairs.iter();
     let Some((input_path, output_path)) = input_output_pairs.next() else {
         return Ok(());
@@ -64,7 +58,10 @@ async fn run() -> Result<(), AppError> {
             .map(|(input_path, output_path)| spawn_decode(input_path.clone(), output_path.clone()));
 
         let pb = progress_bar(&multi_progress, &decoded.input_path);
-        let output = match colorizer.colorize(&decoded.image, &pb).await {
+        let output = match colorizer
+            .colorize_with_progress(&decoded.image, |_| pb.inc(1))
+            .await
+        {
             Ok(output) => output,
             Err(err) => {
                 pb.finish_with_message(format!("Failed: {}", decoded.input_path));
@@ -90,7 +87,7 @@ async fn run() -> Result<(), AppError> {
 }
 
 fn progress_bar(multi_progress: &MultiProgress, input_path: &str) -> ProgressBar {
-    let pb = multi_progress.add(ProgressBar::new(100));
+    let pb = multi_progress.add(ProgressBar::new(ColorizeStage::COUNT));
 
     pb.set_style(
         ProgressStyle::default_bar()

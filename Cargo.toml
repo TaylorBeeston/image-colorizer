@@ -1,5 +1,11 @@
-[package]
-name = "image-colorizer"
+[workspace]
+members = [
+    "crates/image-colorizer-core",
+    "crates/image-colorizer-cli",
+]
+resolver = "2"
+
+[workspace.package]
 version = "1.1.5"
 authors = ["Taylor Beeston <beeston.taylor@gmail.com>"]
 edition = "2021"
@@ -8,22 +14,21 @@ repository = "https://github.com/TaylorBeeston/image-colorizer"
 license = "MIT"
 readme = "README.md"
 keywords = ["image", "color", "gpu", "webgpu", "wgsl"]
-categories = ["multimedia::images", "graphics", "command-line-utilities"]
+categories = ["multimedia::images", "graphics"]
 
-[dependencies]
+[workspace.dependencies]
+anyhow = "1.0"
+bytemuck = { version = "1.13", features = ["derive"] }
+clap = "3.2"
+config = "0.13"
+dirs = "5.0"
+futures = "0.3"
 image = "0.24.6"
-palette = "0.7.2"
 indicatif = "0.17.3"
+palette = "0.7.2"
+reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = "1.0"
 serde_derive = "1.0"
-config = "0.13"
-toml = "0.7"
-dirs = "5.0"
-clap = "3.2"
-rand = "0.8.5"
-wgpu = "0.16"
-futures = "0.3"
-bytemuck = { version = "1.13", features = ["derive"] }
 tokio = { version = "1.28", features = ["full"] }
-reqwest = { version = "0.11", features = ["json", "stream"] }
-anyhow = "1.0"
+toml = "0.7"
+wgpu = "0.16"

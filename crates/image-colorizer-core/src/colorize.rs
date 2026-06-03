@@ -1,8 +1,7 @@
-use crate::types::AppConfig;
+use crate::types::ColorizerConfig;
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView};
-use indicatif::ProgressBar;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -43,6 +42,24 @@ struct Params {
 unsafe impl bytemuck::Pod for Params {}
 unsafe impl bytemuck::Zeroable for Params {}
 
+/// A completed colorization stage.
+///
+/// This is useful for CLI or UI progress reporting without coupling the library
+/// to a specific progress-bar implementation.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ColorizeStage {
+    PaletteMatch,
+    HorizontalSpatialAverage,
+    VerticalSpatialAverageAndFinalColor,
+}
+
+impl ColorizeStage {
+    pub const COUNT: u64 = 3;
+}
+
+/// RGB8 image bytes produced by [`GpuColorizer`].
+///
+/// `data` is tightly packed RGB: `width * height * 3` bytes.
 pub struct RenderedImage {
     pub width: u32,
     pub height: u32,
@@ -61,6 +78,11 @@ struct FrameBuffers {
     params_buffer: wgpu::Buffer,
 }
 
+/// Reusable WebGPU image colorizer.
+///
+/// Creating a colorizer initializes the GPU device, queue, shaders, pipelines,
+/// palette buffer, and reusable scratch buffers. Reuse one value for a batch
+/// instead of constructing one per image.
 pub struct GpuColorizer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -77,7 +99,7 @@ pub struct GpuColorizer {
 }
 
 impl GpuColorizer {
-    pub async fn new(config: &AppConfig) -> Result<Self> {
+    pub async fn new(config: &ColorizerConfig) -> Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -165,14 +187,18 @@ impl GpuColorizer {
         })
     }
 
-    pub async fn colorize(
+    /// Colorize an image.
+    pub async fn colorize(&mut self, img: &DynamicImage) -> Result<RenderedImage> {
+        self.colorize_with_progress(img, |_| {}).await
+    }
+
+    /// Colorize an image and report completed GPU stages.
+    pub async fn colorize_with_progress(
         &mut self,
         img: &DynamicImage,
-        pb: &ProgressBar,
+        mut progress: impl FnMut(ColorizeStage),
     ) -> Result<RenderedImage> {
         let (width, height) = img.dimensions();
-
-        pb.set_length(3);
 
         self.ensure_frame_buffers(width, height);
         self.upload_input(img);
@@ -205,7 +231,7 @@ impl GpuColorizer {
             height,
             "Colorize Pass 1",
         );
-        pb.inc(1);
+        progress(ColorizeStage::PaletteMatch);
 
         dispatch(
             &mut encoder,
@@ -215,7 +241,7 @@ impl GpuColorizer {
             height,
             "Horizontal Spatial Average",
         );
-        pb.inc(1);
+        progress(ColorizeStage::HorizontalSpatialAverage);
 
         dispatch(
             &mut encoder,
@@ -232,7 +258,7 @@ impl GpuColorizer {
             0,
             buffers.output_buffer.size(),
         );
-        pb.inc(1);
+        progress(ColorizeStage::VerticalSpatialAverageAndFinalColor);
 
         self.queue.submit(Some(encoder.finish()));
 

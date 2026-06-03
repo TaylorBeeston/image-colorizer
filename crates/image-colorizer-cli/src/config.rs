@@ -1,7 +1,8 @@
-use crate::colors::KANAGAWA;
 use crate::constants::VERSION;
-use crate::types::AppConfig;
-use crate::utils::{hex_to_rgb, interpolate_color};
+
+use image_colorizer_core::colors::KANAGAWA;
+use image_colorizer_core::utils::{hex_to_rgb, interpolate_color};
+use image_colorizer_core::ColorizerConfig;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -96,6 +97,12 @@ struct SerializedAppConfig {
 pub struct ConfigInfo {
     config: SerializedAppConfig,
     config_dir: PathBuf,
+}
+
+#[derive(Debug)]
+pub struct CliConfig {
+    pub input_output_pairs: Vec<(String, String)>,
+    pub colorizer: ColorizerConfig,
 }
 
 fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
@@ -324,7 +331,7 @@ fn parse_u32_at_most(name: &str, value: &str, max: u32) -> Result<u32, AppError>
     }
 }
 
-pub async fn init() -> Result<Arc<AppConfig>, AppError> {
+pub async fn init() -> Result<Arc<CliConfig>, AppError> {
     let matches = App::new("Image Colorizer")
         .version(VERSION)
         .author("Taylor Beeston")
@@ -469,12 +476,14 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         colors
     };
 
-    Ok(Arc::new(AppConfig {
+    Ok(Arc::new(CliConfig {
         input_output_pairs,
-        blend_factor,
-        colors,
-        dither_amount,
-        spatial_averaging_radius,
+        colorizer: ColorizerConfig {
+            blend_factor,
+            colors,
+            dither_amount,
+            spatial_averaging_radius,
+        },
     }))
 }
 

@@ -1,0 +1,22 @@
+[package]
+name = "image-colorizer-core"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+futures.workspace = true
+image.workspace = true
+palette.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

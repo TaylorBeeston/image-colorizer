@@ -22,6 +22,43 @@ paru -Syu image-colorizer # Or whatever AUR helper you use. yay, pikaur, etc
 cargo install image-colorizer
 ```
 
+### Library
+
+```toml
+[dependencies]
+image-colorizer-core = { git = "https://github.com/TaylorBeeston/image-colorizer" }
+image = "0.24"
+anyhow = "1"
+palette = "0.7"
+```
+
+```rust
+use image_colorizer_core::{ColorizerConfig, GpuColorizer};
+use palette::Lab;
+
+async fn colorize_file() -> anyhow::Result<()> {
+    let config = ColorizerConfig {
+        blend_factor: 0.9,
+        colors: vec![Lab::new(50.0, 0.0, 0.0)],
+        dither_amount: 0.1,
+        spatial_averaging_radius: 10,
+    };
+
+    let image = image::open("input.png")?;
+    let mut colorizer = GpuColorizer::new(&config).await?;
+    let output = colorizer.colorize(&image).await?;
+
+    image::save_buffer(
+        "output.png",
+        &output.data,
+        output.width,
+        output.height,
+        image::ColorType::Rgb8,
+    )?;
+    Ok(())
+}
+```
+
 Additional package-manager support may be added later.
 
 ## Quick Start
@@ -89,7 +126,7 @@ If a requested colorscheme is not found beside the config file, Image Colorizer 
 
 ## How It Works
 
-Image Colorizer initializes one reusable WebGPU renderer per command. Image decoding and output saving happen on CPU worker threads, but the colorization pipeline itself stays on the GPU until the final packed RGB readback.
+Image Colorizer is a Cargo workspace with a reusable `image-colorizer-core` library and an `image-colorizer` CLI wrapper. The CLI initializes one reusable WebGPU renderer per command. Image decoding and output saving happen on CPU worker threads, but the colorization pipeline itself stays on the GPU until the final packed RGB readback.
 
 ```mermaid
 graph TD
