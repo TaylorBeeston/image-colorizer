@@ -1,0 +1,8 @@
+[[package]]
+name = "image-colorizer-core"
+version_group = "image-colorizer"
+
+[[package]]
+name = "image-colorizer"
+version_group = "image-colorizer"
+changelog_include = ["image-colorizer-core"]

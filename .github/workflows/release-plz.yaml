@@ -47,7 +47,21 @@ jobs:
         run: |
           version=$(grep '^version =' Cargo.toml | sed 's/.*= "\(.*\)"/\1/')
           sed "s/pkgver=.*/pkgver=$version/" PKGBUILD.template > PKGBUILD
-          sum=$(curl -sL "https://crates.io/api/v1/crates/image-colorizer/$version/download" | sha256sum | cut -d ' ' -f 1)
+
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsSL "https://crates.io/api/v1/crates/image-colorizer/$version/download" -o "image-colorizer-$version.crate"; then
+              break
+            fi
+
+            if [ "$attempt" = "10" ]; then
+              echo "Failed to download image-colorizer $version from crates.io"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          sum=$(sha256sum "image-colorizer-$version.crate" | cut -d ' ' -f 1)
           sed -i "s/sha256sums=('PLACEHOLDER')/sha256sums=('$sum')/" PKGBUILD
 
       - name: Generate .SRCINFO
