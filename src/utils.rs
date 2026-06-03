@@ -70,7 +70,7 @@ pub fn compute_integral_image(
                     + lab.b as f64,
             );
 
-            if (y * width as usize + x) % 100 == 0 {
+            if (y * width as usize + x).is_multiple_of(100) {
                 progress_bar.inc(100);
             }
         }

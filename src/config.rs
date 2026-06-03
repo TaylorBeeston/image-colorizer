@@ -13,9 +13,7 @@ use config::{ConfigBuilder, ConfigError, File};
 use futures::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use palette::{color_difference::ImprovedCiede2000, FromColor, Lab};
-use reqwest;
 use serde_derive::Deserialize;
-use toml;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -72,6 +70,12 @@ impl From<String> for AppError {
     }
 }
 
+impl From<anyhow::Error> for AppError {
+    fn from(err: anyhow::Error) -> Self {
+        AppError::Other(err.to_string())
+    }
+}
+
 impl From<reqwest::Error> for AppError {
     fn from(err: reqwest::Error) -> Self {
         AppError::DownloadError(err.to_string())
@@ -106,15 +110,18 @@ fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
         .set_default("spatial_averaging_radius", "10")?;
 
     let default_config_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from(""))
+        .ok_or_else(|| AppError::Other("Could not determine home directory".to_string()))?
         .join(".config/image-colorizer");
     let default_config_path = default_config_dir.join("config.toml");
 
     let (config_path, config_dir) = if let Some(path) = config_path {
-        (
-            PathBuf::from(path),
-            PathBuf::from(path).parent().unwrap().to_path_buf(),
-        )
+        let config_path = PathBuf::from(path);
+        let config_dir = config_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+
+        (config_path, config_dir)
     } else if default_config_path.exists() {
         (default_config_path, default_config_dir)
     } else {
@@ -173,10 +180,19 @@ async fn load_colorscheme(name: &str, config_dir: &Path) -> Result<Vec<String>, 
 fn parse_and_validate_colorscheme(content: &str, name: &str) -> Result<Vec<String>, AppError> {
     let colorscheme = parse_colorscheme(content);
     if colorscheme.is_empty() {
-        Err(AppError::Other(format!("Colorscheme '{}' is empty", name)))
-    } else {
-        Ok(colorscheme)
+        return Err(AppError::Other(format!("Colorscheme '{}' is empty", name)));
     }
+
+    for color in &colorscheme {
+        hex_to_rgb(color).map_err(|err| {
+            AppError::Other(format!(
+                "Invalid color '{}' in colorscheme '{}': {}",
+                color, name, err
+            ))
+        })?;
+    }
+
+    Ok(colorscheme)
 }
 
 async fn download_colorscheme_from_github(name: &str) -> Result<String, AppError> {
@@ -240,8 +256,11 @@ fn parse_colorscheme(content: &str) -> Vec<String> {
 }
 
 fn interpolate_colors(mut colors: Vec<Lab>, threshold: f32) -> Vec<Lab> {
-    colors.sort_by(|a, b| a.l.partial_cmp(&b.l).unwrap());
+    if colors.len() < 2 {
+        return colors;
+    }
 
+    colors.sort_by(|a, b| a.l.total_cmp(&b.l));
     let mut interpolated = Vec::new();
     for window in colors.windows(2) {
         let color1 = &window[0];
@@ -261,6 +280,48 @@ fn interpolate_colors(mut colors: Vec<Lab>, threshold: f32) -> Vec<Lab> {
     interpolated.push(*colors.last().unwrap());
 
     interpolated
+}
+
+fn parse_f32_between(name: &str, value: &str, min: f32, max: f32) -> Result<f32, AppError> {
+    let parsed = value
+        .parse::<f32>()
+        .map_err(|e| AppError::Other(format!("Failed to parse {}: {}", name, e)))?;
+
+    if parsed.is_finite() && parsed >= min && parsed <= max {
+        Ok(parsed)
+    } else {
+        Err(AppError::Other(format!(
+            "{} must be between {} and {}",
+            name, min, max
+        )))
+    }
+}
+
+fn parse_positive_f32_at_most(name: &str, value: &str, max: f32) -> Result<f32, AppError> {
+    let parsed = value
+        .parse::<f32>()
+        .map_err(|e| AppError::Other(format!("Failed to parse {}: {}", name, e)))?;
+
+    if parsed.is_finite() && parsed > 0.0 && parsed <= max {
+        Ok(parsed)
+    } else {
+        Err(AppError::Other(format!(
+            "{} must be greater than 0 and at most {}",
+            name, max
+        )))
+    }
+}
+
+fn parse_u32_at_most(name: &str, value: &str, max: u32) -> Result<u32, AppError> {
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|e| AppError::Other(format!("Failed to parse {}: {}", name, e)))?;
+
+    if parsed <= max {
+        Ok(parsed)
+    } else {
+        Err(AppError::Other(format!("{} must be at most {}", name, max)))
+    }
 }
 
 pub async fn init() -> Result<Arc<AppConfig>, AppError> {
@@ -340,22 +401,26 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
 
     let ConfigInfo { config, config_dir } = load_config(matches.value_of("Config"))?;
 
-    let input_paths: Vec<&str> = matches.values_of("Image Paths").unwrap().collect();
-    let output_dir = matches.value_of("output").map(PathBuf::from);
+    let input_paths: Vec<&str> = matches
+        .values_of("Image Paths")
+        .ok_or_else(|| AppError::Other("At least one image path is required".to_string()))?
+        .collect();
+    let output_dir = matches.value_of("Output").map(PathBuf::from);
 
     let colorscheme = matches
         .value_of("Colorscheme")
         .unwrap_or(&config.colorscheme);
 
-    let input_output_pairs = generate_input_output_pairs(&input_paths, output_dir, &colorscheme)?;
+    let input_output_pairs = generate_input_output_pairs(&input_paths, output_dir, colorscheme)?;
 
-    let blend_factor = matches
-        .value_of("Blend Factor")
-        .unwrap_or(&config.blend_factor);
-
-    let blend_factor: f32 = blend_factor
-        .parse()
-        .map_err(|e| format!("Failed to parse blend_factor: {}", e))?;
+    let blend_factor = parse_f32_between(
+        "blend_factor",
+        matches
+            .value_of("Blend Factor")
+            .unwrap_or(&config.blend_factor),
+        0.0,
+        1.0,
+    )?;
 
     let should_interpolate_colors = if matches.is_present("No Interpolation") {
         false
@@ -363,35 +428,40 @@ pub async fn init() -> Result<Arc<AppConfig>, AppError> {
         config.interpolate_colors
     };
 
-    let interpolation_threshold = matches
-        .value_of("Interpolation Threshold")
-        .unwrap_or(&config.interpolation_threshold);
+    let interpolation_threshold = parse_positive_f32_at_most(
+        "interpolation_threshold",
+        matches
+            .value_of("Interpolation Threshold")
+            .unwrap_or(&config.interpolation_threshold),
+        100.0,
+    )?;
 
-    let interpolation_threshold: f32 = interpolation_threshold
-        .parse()
-        .map_err(|e| format!("Failed to parse interpolation_threshold: {}", e))?;
+    let dither_amount = parse_f32_between(
+        "dither_amount",
+        matches
+            .value_of("Dither Amount")
+            .unwrap_or(&config.dither_amount),
+        0.0,
+        1.0,
+    )?;
 
-    let dither_amount = matches
-        .value_of("Dither Amount")
-        .unwrap_or(&config.dither_amount);
-
-    let dither_amount: f32 = dither_amount
-        .parse()
-        .map_err(|e| format!("Failed to parse dither_amount: {}", e))?;
-
-    let spatial_averaging_radius = matches
-        .value_of("Spatial Averaging Radius")
-        .unwrap_or(&config.spatial_averaging_radius);
-
-    let spatial_averaging_radius: u32 = spatial_averaging_radius
-        .parse()
-        .map_err(|e| format!("Failed to parse spatial_averaging_radius: {}", e))?;
+    let spatial_averaging_radius = parse_u32_at_most(
+        "spatial_averaging_radius",
+        matches
+            .value_of("Spatial Averaging Radius")
+            .unwrap_or(&config.spatial_averaging_radius),
+        100,
+    )?;
 
     let colors = load_colorscheme(colorscheme, &config_dir).await?;
     let colors: Vec<Lab> = colors
         .iter()
-        .map(|hex| Lab::from_color(hex_to_rgb(hex).unwrap()))
-        .collect();
+        .map(|hex| {
+            hex_to_rgb(hex)
+                .map(Lab::from_color)
+                .map_err(|err| AppError::Other(format!("Invalid color '{}': {}", hex, err)))
+        })
+        .collect::<Result<_, _>>()?;
 
     let colors = if should_interpolate_colors {
         interpolate_colors(colors, interpolation_threshold)
@@ -417,20 +487,89 @@ fn generate_input_output_pairs(
 
     for input_path in input_paths {
         let input_path = Path::new(input_path);
-        let file_stem = input_path.file_stem().unwrap().to_str().unwrap();
-        let extension = input_path.extension().unwrap_or_default().to_str().unwrap();
+        let file_stem = input_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| {
+                AppError::Other(format!(
+                    "Input path '{}' does not have a valid UTF-8 file name",
+                    input_path.display()
+                ))
+            })?;
+
+        let extension = input_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("");
+
+        let output_file_name = if extension.is_empty() {
+            format!("{}_{}", file_stem, colorscheme)
+        } else {
+            format!("{}_{}.{}", file_stem, colorscheme, extension)
+        };
 
         let output_path = if let Some(ref dir) = output_dir {
-            dir.join(format!("{}_{}.{}", file_stem, colorscheme, extension))
+            dir.join(output_file_name)
         } else {
-            input_path.with_file_name(format!("{}_{}.{}", file_stem, colorscheme, extension))
+            input_path.with_file_name(output_file_name)
         };
 
         pairs.push((
-            input_path.to_str().unwrap().to_string(),
-            output_path.to_str().unwrap().to_string(),
+            input_path
+                .to_str()
+                .ok_or_else(|| {
+                    AppError::Other(format!(
+                        "Input path '{}' is not valid UTF-8",
+                        input_path.display()
+                    ))
+                })?
+                .to_string(),
+            output_path
+                .to_str()
+                .ok_or_else(|| {
+                    AppError::Other(format!(
+                        "Output path '{}' is not valid UTF-8",
+                        output_path.display()
+                    ))
+                })?
+                .to_string(),
         ));
     }
 
     Ok(pairs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_f32_between_rejects_out_of_range_and_non_finite_values() {
+        assert!(parse_f32_between("blend_factor", "-0.1", 0.0, 1.0).is_err());
+        assert!(parse_f32_between("blend_factor", "1.1", 0.0, 1.0).is_err());
+        assert!(parse_f32_between("blend_factor", "NaN", 0.0, 1.0).is_err());
+        assert_eq!(
+            parse_f32_between("blend_factor", "0.5", 0.0, 1.0).unwrap(),
+            0.5
+        );
+    }
+
+    #[test]
+    fn parse_positive_f32_rejects_zero() {
+        assert!(parse_positive_f32_at_most("interpolation_threshold", "0", 100.0).is_err());
+        assert_eq!(
+            parse_positive_f32_at_most("interpolation_threshold", "2.5", 100.0).unwrap(),
+            2.5
+        );
+    }
+
+    #[test]
+    fn generate_input_output_pairs_handles_missing_extension() {
+        let pairs = generate_input_output_pairs(&["wallpaper"], None, "kanagawa").unwrap();
+
+        assert_eq!(
+            pairs,
+            vec![("wallpaper".to_string(), "wallpaper_kanagawa".to_string())]
+        );
+    }
 }

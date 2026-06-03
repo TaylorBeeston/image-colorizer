@@ -2,23 +2,29 @@ use std::iter;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone)]
 struct Pixel {
     r: f32,
     g: f32,
     b: f32,
 }
 
+unsafe impl bytemuck::Pod for Pixel {}
+unsafe impl bytemuck::Zeroable for Pixel {}
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone)]
 struct ColorizedPixel {
     r: f32,
     g: f32,
     b: f32,
 }
 
+unsafe impl bytemuck::Pod for ColorizedPixel {}
+unsafe impl bytemuck::Zeroable for ColorizedPixel {}
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone)]
 struct Params {
     width: u32,
     height: u32,
@@ -26,6 +32,9 @@ struct Params {
     dither_amount: f32,
     spatial_radius: u32,
 }
+
+unsafe impl bytemuck::Pod for Params {}
+unsafe impl bytemuck::Zeroable for Params {}
 
 #[tokio::test]
 async fn test_colorize_pass1_shader_preserves_input_when_blend_is_zero() {

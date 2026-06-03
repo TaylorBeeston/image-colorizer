@@ -11,13 +11,21 @@ use crate::colorize::colorize;
 use crate::config::{init, AppError};
 use crate::types::AppConfig;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tokio::task;
 
 #[tokio::main]
-async fn main() -> Result<(), AppError> {
+async fn main() {
+    if let Err(err) = run().await {
+        eprintln!("{}", err);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), AppError> {
     let config = init().await?;
     let multi_progress = Arc::new(MultiProgress::new());
 
@@ -55,7 +63,9 @@ async fn main() -> Result<(), AppError> {
     }
 
     for handle in handles {
-        handle.await.unwrap().unwrap();
+        handle
+            .await
+            .map_err(|err| AppError::Other(format!("Image processing task failed: {}", err)))??;
     }
 
     Ok(())
@@ -68,7 +78,14 @@ async fn process_image(
     pb: &ProgressBar,
 ) -> Result<(), AppError> {
     let img = image::open(input_path)?;
-    let final_output = colorize(&img, &config, &pb).await.unwrap();
+    let final_output = colorize(&img, &config, pb).await?;
+
+    if let Some(parent) = Path::new(output_path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
     final_output.save(output_path)?;
     Ok(())
 }

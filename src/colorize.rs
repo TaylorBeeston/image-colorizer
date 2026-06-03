@@ -6,23 +6,29 @@ use indicatif::ProgressBar;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone)]
 struct Pixel {
     r: f32,
     g: f32,
     b: f32,
 }
 
+unsafe impl bytemuck::Pod for Pixel {}
+unsafe impl bytemuck::Zeroable for Pixel {}
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone)]
 struct ColorizedPixel {
     r: f32,
     g: f32,
     b: f32,
 }
 
+unsafe impl bytemuck::Pod for ColorizedPixel {}
+unsafe impl bytemuck::Zeroable for ColorizedPixel {}
+
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone)]
 struct Params {
     width: u32,
     height: u32,
@@ -30,6 +36,9 @@ struct Params {
     dither_amount: f32,
     spatial_radius: u32,
 }
+
+unsafe impl bytemuck::Pod for Params {}
+unsafe impl bytemuck::Zeroable for Params {}
 
 pub async fn colorize(
     img: &DynamicImage,
@@ -70,10 +79,14 @@ pub async fn colorize(
     let output_buffer1 = create_output_buffer(&device, width, height);
     let staging_buffer = create_staging_buffer(&device, width, height);
 
-    let color_palette: Vec<[f32; 3]> = config
+    let color_palette: Vec<ColorizedPixel> = config
         .colors
         .iter()
-        .map(|lab| [lab.l as f32, lab.a as f32, lab.b as f32])
+        .map(|lab| ColorizedPixel {
+            r: lab.l,
+            g: lab.a,
+            b: lab.b,
+        })
         .collect();
     let color_palette_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Color Palette Buffer"),
@@ -142,7 +155,7 @@ pub async fn colorize(
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             compute_pass.set_pipeline(&compute_pipeline1);
             compute_pass.set_bind_group(0, &bind_group1, &[]);
-            compute_pass.dispatch_workgroups((width + 15) / 16, (height + 15) / 16, 1);
+            compute_pass.dispatch_workgroups(width.div_ceil(16), height.div_ceil(16), 1);
         }
         encoder.copy_buffer_to_buffer(&output_buffer1, 0, &staging_buffer, 0, buffer_size);
         queue.submit(Some(encoder.finish()));
@@ -160,7 +173,7 @@ pub async fn colorize(
         let result = read_buffer(&buffer_slice);
         staging_buffer.unmap();
 
-        process_result(&device, &queue, result, width, height, params_buffer, &pb).await
+        process_result(&device, &queue, result, width, height, params_buffer, pb).await
     } else {
         Err(anyhow::anyhow!("Failed to run compute on GPU!"))
     }
@@ -192,8 +205,8 @@ async fn process_result(
         module: &shader2,
         entry_point: "main",
     });
-    let output_buffer2 = create_output_buffer(&device, width, height);
-    let staging_buffer = create_staging_buffer(&device, width, height);
+    let output_buffer2 = create_output_buffer(device, width, height);
+    let staging_buffer = create_staging_buffer(device, width, height);
     // Convert to image for CPU processing
     let mut img = ImageBuffer::new(width, height);
     for (i, pixel) in result.iter().enumerate() {
@@ -210,7 +223,7 @@ async fn process_result(
         );
     }
 
-    let input_buffer = create_input_buffer(&device, &img.clone().into());
+    let input_buffer = create_rgb_input_buffer(device, &img);
 
     // Perform CPU-based spatial averaging
     let spatially_averaged = compute_integral_image(&img, pb);
@@ -264,7 +277,7 @@ async fn process_result(
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             compute_pass.set_pipeline(&compute_pipeline2);
             compute_pass.set_bind_group(0, &bind_group2, &[]);
-            compute_pass.dispatch_workgroups((width + 15) / 16, (height + 15) / 16, 1);
+            compute_pass.dispatch_workgroups(width.div_ceil(16), height.div_ceil(16), 1);
         }
         encoder.copy_buffer_to_buffer(&output_buffer2, 0, &staging_buffer, 0, buffer_size);
         queue.submit(Some(encoder.finish()));
@@ -305,8 +318,11 @@ async fn process_result(
 }
 
 fn create_input_buffer(device: &wgpu::Device, img: &DynamicImage) -> wgpu::Buffer {
+    create_rgb_input_buffer(device, &img.to_rgb8())
+}
+
+fn create_rgb_input_buffer(device: &wgpu::Device, img: &RgbImage) -> wgpu::Buffer {
     let input_data: Vec<ColorizedPixel> = img
-        .to_rgb8()
         .pixels()
         .map(|p| ColorizedPixel {
             r: p[0] as f32 / 255.0,
@@ -314,6 +330,7 @@ fn create_input_buffer(device: &wgpu::Device, img: &DynamicImage) -> wgpu::Buffe
             b: p[2] as f32 / 255.0,
         })
         .collect();
+
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Input Buffer"),
         contents: bytemuck::cast_slice(&input_data),
