@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.5](https://github.com/TaylorBeeston/image-colorizer/compare/v1.1.4...v1.1.5) - 2026-06-03
+
+### Other
+
+- Update documentation for GPU pipeline
+- Collapse final colorization into spatial shader
+- Write final GPU output directly to bytes
+- Overlap batch I/O with GPU work
+- Reuse GPU renderer across batches
+- Move spatial averaging onto the GPU
+- Refresh CLI documentation
+- Harden config and CLI errors
+- Clean up compute shaders
+- Add pass one shader test
+
 ### Added
 - GPU shader tests for the colorization and spatial averaging pipeline.
 
