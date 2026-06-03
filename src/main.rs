@@ -7,12 +7,12 @@ mod tests;
 mod types;
 mod utils;
 
-use crate::colorize::GpuColorizer;
+use crate::colorize::{GpuColorizer, RenderedImage};
 use crate::config::{init, AppError};
 
 use std::path::Path;
 
-use image::{DynamicImage, RgbImage};
+use image::{ColorType, DynamicImage};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tokio::task::{self, JoinHandle};
 
@@ -26,7 +26,7 @@ struct PendingSave {
     input_path: String,
     output_path: String,
     pb: ProgressBar,
-    handle: JoinHandle<Result<(), AppError>>,
+    handle: JoinHandle<Result<Vec<u8>, AppError>>,
 }
 
 #[tokio::main]
@@ -53,9 +53,7 @@ async fn run() -> Result<(), AppError> {
         let decoded = match await_decode(decode).await {
             Ok(decoded) => decoded,
             Err(err) => {
-                if let Some(save) = pending_save.take() {
-                    finish_save(save).await?;
-                }
+                finish_pending_save(&mut colorizer, pending_save.take()).await?;
 
                 return Err(err);
             }
@@ -70,18 +68,13 @@ async fn run() -> Result<(), AppError> {
             Ok(output) => output,
             Err(err) => {
                 pb.finish_with_message(format!("Failed: {}", decoded.input_path));
-
-                if let Some(save) = pending_save.take() {
-                    finish_save(save).await?;
-                }
+                finish_pending_save(&mut colorizer, pending_save.take()).await?;
 
                 return Err(err.into());
             }
         };
 
-        if let Some(save) = pending_save.take() {
-            finish_save(save).await?;
-        }
+        finish_pending_save(&mut colorizer, pending_save.take()).await?;
 
         pending_save = Some(PendingSave {
             input_path: decoded.input_path,
@@ -91,9 +84,7 @@ async fn run() -> Result<(), AppError> {
         });
     }
 
-    if let Some(save) = pending_save {
-        finish_save(save).await?;
-    }
+    finish_pending_save(&mut colorizer, pending_save).await?;
 
     Ok(())
 }
@@ -137,11 +128,24 @@ async fn await_decode(
         .map_err(|err| AppError::Other(format!("Image decoding task failed: {}", err)))?
 }
 
-fn spawn_save(output_path: String, image: RgbImage) -> JoinHandle<Result<(), AppError>> {
+fn spawn_save(output_path: String, image: RenderedImage) -> JoinHandle<Result<Vec<u8>, AppError>> {
     task::spawn_blocking(move || save_image(&output_path, image))
 }
 
-async fn finish_save(save: PendingSave) -> Result<(), AppError> {
+async fn finish_pending_save(
+    colorizer: &mut GpuColorizer,
+    save: Option<PendingSave>,
+) -> Result<(), AppError> {
+    if let Some(save) = save {
+        let data = finish_save(save).await?;
+
+        colorizer.recycle_output_buffer(data);
+    }
+
+    Ok(())
+}
+
+async fn finish_save(save: PendingSave) -> Result<Vec<u8>, AppError> {
     let result = save
         .handle
         .await
@@ -160,14 +164,20 @@ async fn finish_save(save: PendingSave) -> Result<(), AppError> {
     result
 }
 
-fn save_image(output_path: &str, image: RgbImage) -> Result<(), AppError> {
+fn save_image(output_path: &str, image: RenderedImage) -> Result<Vec<u8>, AppError> {
     if let Some(parent) = Path::new(output_path).parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
 
-    image.save(output_path)?;
+    image::save_buffer(
+        output_path,
+        &image.data,
+        image.width,
+        image.height,
+        ColorType::Rgb8,
+    )?;
 
-    Ok(())
+    Ok(image.data)
 }

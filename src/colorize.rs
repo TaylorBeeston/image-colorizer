@@ -1,7 +1,7 @@
 use crate::types::AppConfig;
 
 use anyhow::{Context, Result};
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb, RgbImage};
+use image::{DynamicImage, GenericImageView};
 use indicatif::ProgressBar;
 use wgpu::util::DeviceExt;
 
@@ -29,6 +29,12 @@ struct Params {
 unsafe impl bytemuck::Pod for Params {}
 unsafe impl bytemuck::Zeroable for Params {}
 
+pub struct RenderedImage {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
 struct FrameBuffers {
     width: u32,
     height: u32,
@@ -55,6 +61,7 @@ pub struct GpuColorizer {
     spatial_averaging_radius: u32,
     frame_buffers: Option<FrameBuffers>,
     input_data: Vec<ColorizedPixel>,
+    output_buffers: Vec<Vec<u8>>,
 }
 
 impl GpuColorizer {
@@ -157,10 +164,15 @@ impl GpuColorizer {
             spatial_averaging_radius: config.spatial_averaging_radius,
             frame_buffers: None,
             input_data: Vec::new(),
+            output_buffers: Vec::new(),
         })
     }
 
-    pub async fn colorize(&mut self, img: &DynamicImage, pb: &ProgressBar) -> Result<RgbImage> {
+    pub async fn colorize(
+        &mut self,
+        img: &DynamicImage,
+        pb: &ProgressBar,
+    ) -> Result<RenderedImage> {
         let (width, height) = img.dimensions();
 
         pb.set_length(4);
@@ -237,25 +249,27 @@ impl GpuColorizer {
 
         self.queue.submit(Some(encoder.finish()));
 
-        let result = read_output_buffer(&self.device, &buffers.staging_buffer).await?;
-        let mut output_image = ImageBuffer::new(width, height);
+        let mut output_data = self.output_buffers.pop().unwrap_or_default();
 
-        for (i, pixel) in result.iter().enumerate() {
-            let x = i as u32 % width;
-            let y = i as u32 / width;
+        read_output_buffer(
+            &self.device,
+            &buffers.staging_buffer,
+            width,
+            height,
+            &mut output_data,
+        )
+        .await?;
 
-            output_image.put_pixel(
-                x,
-                y,
-                Rgb([
-                    (pixel.r * 255.0) as u8,
-                    (pixel.g * 255.0) as u8,
-                    (pixel.b * 255.0) as u8,
-                ]),
-            );
-        }
+        Ok(RenderedImage {
+            width,
+            height,
+            data: output_data,
+        })
+    }
 
-        Ok(output_image)
+    pub fn recycle_output_buffer(&mut self, mut data: Vec<u8>) {
+        data.clear();
+        self.output_buffers.push(data);
     }
 
     fn ensure_frame_buffers(&mut self, width: u32, height: u32) {
@@ -477,7 +491,10 @@ fn dispatch(
 async fn read_output_buffer(
     device: &wgpu::Device,
     staging_buffer: &wgpu::Buffer,
-) -> Result<Vec<ColorizedPixel>> {
+    width: u32,
+    height: u32,
+    output_data: &mut Vec<u8>,
+) -> Result<()> {
     let buffer_slice = staging_buffer.slice(..);
     let (sender, receiver) = futures::channel::oneshot::channel();
 
@@ -492,12 +509,21 @@ async fn read_output_buffer(
         .context("Failed to map output buffer")?;
 
     let data = buffer_slice.get_mapped_range();
-    let result = bytemuck::cast_slice(&data).to_vec();
+    let result = bytemuck::cast_slice::<_, ColorizedPixel>(&data);
+
+    output_data.clear();
+    output_data.resize(width as usize * height as usize * 3, 0);
+
+    for (pixel, output) in result.iter().zip(output_data.chunks_exact_mut(3)) {
+        output[0] = (pixel.r * 255.0) as u8;
+        output[1] = (pixel.g * 255.0) as u8;
+        output[2] = (pixel.b * 255.0) as u8;
+    }
 
     drop(data);
     staging_buffer.unmap();
 
-    Ok(result)
+    Ok(())
 }
 
 fn create_storage_buffer(

@@ -48,7 +48,9 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
         .await
         .expect("GPU colorize pipeline should complete");
 
-    assert_eq!(output, input);
+    assert_eq!(output.width, input.width());
+    assert_eq!(output.height, input.height());
+    assert_eq!(output.data, *input.as_raw());
 
     let second_input = ImageBuffer::from_fn(3, 1, |x, _| match x {
         0 => Rgb([16, 32, 64]),
@@ -64,5 +66,7 @@ async fn test_colorize_pipeline_preserves_input_when_blend_is_zero() {
         .await
         .expect("reused GPU colorizer should complete");
 
-    assert_eq!(second_output, second_input);
+    assert_eq!(second_output.width, second_input.width());
+    assert_eq!(second_output.height, second_input.height());
+    assert_eq!(second_output.data, *second_input.as_raw());
 }
