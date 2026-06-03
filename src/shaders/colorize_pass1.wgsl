@@ -116,8 +116,9 @@ fn apply_dithering(color: vec3<f32>, targ: vec3<f32>, amount: f32, global_id: ve
 }
 
 @compute @workgroup_size(16, 16, 1)fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    if global_id.x >= params.width || global_id.y >= params.height { return; }
+
     let index = global_id.x + global_id.y * params.width;
-    if index >= arrayLength(&input) { return; }
 
     let input_color = vec3<f32>(f32(input[index].r), f32(input[index].g), f32(input[index].b));
     let lab_color = rgb_to_lab(input_color);
