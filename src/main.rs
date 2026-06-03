@@ -2,6 +2,8 @@ mod colorize;
 mod colors;
 mod config;
 mod constants;
+#[cfg(test)]
+mod tests;
 mod types;
 mod utils;
 

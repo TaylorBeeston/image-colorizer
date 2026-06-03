@@ -16,7 +16,7 @@ struct Params {
 
 @group(0) @binding(0) var<storage, read> input : array<Pixel>;
 @group(0) @binding(1) var<storage, write> output : array<ColorizedPixel>;
-@group(0) @binding(2) var<storage, read> color_palette : array<vec3<f32>>;
+@group(0) @binding(2) var<storage, read> color_palette : array<ColorizedPixel>;
 @group(0) @binding(3) var<uniform> params : Params;
 
 fn clamp_color(color: vec3<f32>) -> vec3<f32> {
@@ -89,12 +89,16 @@ fn xyz_to_rgb(xyz: vec3<f32>) -> vec3<f32> {
         clamp(b1, 0.0, 1.0));
 }
 
+fn color_palette_value(index: u32) -> vec3<f32> {
+    return vec3<f32>(color_palette[index].r, color_palette[index].g, color_palette[index].b);
+}
+
 fn find_closest_color(lab: vec3<f32>) -> vec3<f32> {
-    var closest_color = vec3<f32>(color_palette[0]);
+    var closest_color = color_palette_value(0u);
     var min_distance = distance(lab, closest_color);
 
     for (var i = 1u; i < arrayLength(&color_palette); i = i + 1u) {
-        let current_color = vec3<f32>(color_palette[i]);
+        let current_color = color_palette_value(i);
         let current_distance = distance(lab, current_color);
         if current_distance < min_distance {
             min_distance = current_distance;
