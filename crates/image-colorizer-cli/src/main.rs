@@ -1,7 +1,9 @@
 mod config;
 mod constants;
+mod server;
 
-use crate::config::{init, AppError};
+use crate::config::{init, AppError, CliCommand, CliConfig};
+
 use image_colorizer_core::{ColorizeStage, GpuColorizer, RenderedImage};
 
 use std::path::Path;
@@ -32,7 +34,15 @@ async fn main() {
 }
 
 async fn run() -> Result<(), AppError> {
-    let config = init().await?;
+    let command = init().await?;
+
+    match command.as_ref() {
+        CliCommand::Batch(config) => run_batch(config).await,
+        CliCommand::Serve(config) => server::serve(config).await,
+    }
+}
+
+async fn run_batch(config: &CliConfig) -> Result<(), AppError> {
     let multi_progress = MultiProgress::new();
     let mut colorizer = GpuColorizer::new(&config.colorizer).await?;
     let mut input_output_pairs = config.input_output_pairs.iter();

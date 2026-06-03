@@ -5,6 +5,7 @@ use image_colorizer_core::utils::{hex_to_rgb, interpolate_color};
 use image_colorizer_core::ColorizerConfig;
 
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -100,8 +101,20 @@ pub struct ConfigInfo {
 }
 
 #[derive(Debug)]
+pub enum CliCommand {
+    Batch(CliConfig),
+    Serve(ServeConfig),
+}
+
+#[derive(Debug)]
 pub struct CliConfig {
     pub input_output_pairs: Vec<(String, String)>,
+    pub colorizer: ColorizerConfig,
+}
+
+#[derive(Debug)]
+pub struct ServeConfig {
+    pub bind: SocketAddr,
     pub colorizer: ColorizerConfig,
 }
 
@@ -331,7 +344,7 @@ fn parse_u32_at_most(name: &str, value: &str, max: u32) -> Result<u32, AppError>
     }
 }
 
-pub async fn init() -> Result<Arc<CliConfig>, AppError> {
+pub async fn init() -> Result<Arc<CliCommand>, AppError> {
     let matches = App::new("Image Colorizer")
         .version(VERSION)
         .author("Taylor Beeston")
@@ -356,7 +369,7 @@ pub async fn init() -> Result<Arc<CliConfig>, AppError> {
             Arg::with_name("No Interpolation")
                 .long("no-interpolation")
                 .takes_value(false)
-                .help("Disables color interpolation. Setting this causes interpolation threshold to do nothing")
+                .help("Disables color interpolation. Setting this causes interpolation threshold to do nothing"),
         )
         .arg(
             Arg::with_name("Dither Amount")
@@ -400,25 +413,60 @@ pub async fn init() -> Result<Arc<CliConfig>, AppError> {
         .arg(
             Arg::with_name("Image Paths")
                 .help("Paths to the images you'd like to colorize")
-                .required(true)
                 .multiple(true)
                 .index(1),
+        )
+        .subcommand(
+            App::new("serve")
+                .about("Start a local web UI")
+                .arg(
+                    Arg::with_name("Bind")
+                        .long("bind")
+                        .value_name("ADDR")
+                        .help("Address to bind the local web UI to")
+                        .default_value("127.0.0.1:8474")
+                        .takes_value(true),
+                ),
         )
         .get_matches();
 
     let ConfigInfo { config, config_dir } = load_config(matches.value_of("Config"))?;
+    let colorizer = resolve_colorizer_config(&matches, &config, &config_dir).await?;
+
+    if let Some(serve_matches) = matches.subcommand_matches("serve") {
+        let bind = serve_matches
+            .value_of("Bind")
+            .unwrap_or("127.0.0.1:8474")
+            .parse::<SocketAddr>()
+            .map_err(|err| AppError::Other(format!("Invalid bind address: {}", err)))?;
+
+        return Ok(Arc::new(CliCommand::Serve(ServeConfig { bind, colorizer })));
+    }
 
     let input_paths: Vec<&str> = matches
         .values_of("Image Paths")
         .ok_or_else(|| AppError::Other("At least one image path is required".to_string()))?
         .collect();
     let output_dir = matches.value_of("Output").map(PathBuf::from);
-
     let colorscheme = matches
         .value_of("Colorscheme")
         .unwrap_or(&config.colorscheme);
-
     let input_output_pairs = generate_input_output_pairs(&input_paths, output_dir, colorscheme)?;
+
+    Ok(Arc::new(CliCommand::Batch(CliConfig {
+        input_output_pairs,
+        colorizer,
+    })))
+}
+
+async fn resolve_colorizer_config(
+    matches: &clap::ArgMatches,
+    config: &SerializedAppConfig,
+    config_dir: &Path,
+) -> Result<ColorizerConfig, AppError> {
+    let colorscheme = matches
+        .value_of("Colorscheme")
+        .unwrap_or(&config.colorscheme);
 
     let blend_factor = parse_f32_between(
         "blend_factor",
@@ -460,7 +508,7 @@ pub async fn init() -> Result<Arc<CliConfig>, AppError> {
         100,
     )?;
 
-    let colors = load_colorscheme(colorscheme, &config_dir).await?;
+    let colors = load_colorscheme(colorscheme, config_dir).await?;
     let colors: Vec<Lab> = colors
         .iter()
         .map(|hex| {
@@ -476,15 +524,12 @@ pub async fn init() -> Result<Arc<CliConfig>, AppError> {
         colors
     };
 
-    Ok(Arc::new(CliConfig {
-        input_output_pairs,
-        colorizer: ColorizerConfig {
-            blend_factor,
-            colors,
-            dither_amount,
-            spatial_averaging_radius,
-        },
-    }))
+    Ok(ColorizerConfig {
+        blend_factor,
+        colors,
+        dither_amount,
+        spatial_averaging_radius,
+    })
 }
 
 fn generate_input_output_pairs(

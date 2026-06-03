@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - GPU shader tests for the colorization and spatial averaging pipeline.
 - Reusable `image-colorizer-core` library crate.
+- `image-colorizer serve` local web UI for browser-based uploads and downloads.
 
 ### Changed
 - Converted the project into a Cargo workspace with separate core library and CLI crates.

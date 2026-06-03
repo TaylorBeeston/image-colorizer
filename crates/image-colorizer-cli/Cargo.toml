@@ -15,6 +15,7 @@ name = "image-colorizer"
 path = "src/main.rs"
 
 [dependencies]
+axum.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 config.workspace = true

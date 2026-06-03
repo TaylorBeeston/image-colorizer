@@ -18,6 +18,7 @@ categories = ["multimedia::images", "graphics"]
 
 [workspace.dependencies]
 anyhow = "1.0"
+axum = { version = "0.6", features = ["multipart"] }
 bytemuck = { version = "1.13", features = ["derive"] }
 clap = "3.2"
 config = "0.13"

@@ -75,12 +75,21 @@ image-colorizer input_image1.jpg # Outputs input_image1_{colorscheme}.jpg
 image-colorizer -o ./processed_images input_image1.jpg input_image2.png
 ```
 
+### Local Web UI
+
+```bash
+image-colorizer serve
+```
+
+Then open `http://127.0.0.1:8474`. The web UI runs locally and uses the same native GPU pipeline as the CLI.
+
 ## Features
 
 - GPU-resident image processing using WebGPU Shading Language (WGSL)
 - Custom local colorschemes, with missing built-in schemes downloaded automatically
 - Colorscheme interpolation, dithering, and spatial averaging to reduce banding/artifacts
 - Efficient batch processing with one reusable GPU renderer and overlapped image decode/save
+- Local web UI via `image-colorizer serve`
 
 ## Prerequisites
 
@@ -91,7 +100,8 @@ Before you begin, ensure you have a GPU that supports WebGPU.
 To use the Image Colorizer, run the following command:
 
 ```bash
-image-colorizer [OPTIONS] <IMAGE_PATHS>...
+image-colorizer [OPTIONS] [IMAGE_PATHS]...
+image-colorizer [OPTIONS] serve [--bind <ADDR>]
 ```
 
 ### Options
@@ -106,6 +116,8 @@ image-colorizer [OPTIONS] <IMAGE_PATHS>...
 - `-o, --output <OUTPUT_DIR>`: Set the output directory
 - `-h, --help`: Print help information
 - `-V, --version`: Print version information
+- `serve`: Start the local upload/download web UI
+- `--bind <ADDR>`: Set the `serve` bind address (default: `127.0.0.1:8474`)
 
 ## Configuration
 
@@ -123,6 +135,10 @@ spatial_averaging_radius = "10"
 You can also create custom color schemes by adding a text file with one hex color per line in `~/.config/image-colorizer/`. Lines may include comments with `//`. For example, `~/.config/image-colorizer/grayscale.txt` can be selected with `--colorscheme grayscale`.
 
 If a requested colorscheme is not found beside the config file, Image Colorizer attempts to download `<colorscheme>.txt` from this repository's `colorschemes/` directory into your config directory.
+
+## Browser WebGPU Feasibility
+
+A fully in-browser version is feasible: WebGPU supports compute pipelines and WGSL shaders, which are exactly what the core colorization pipeline uses. The current implementation is still native Rust through `wgpu`, so the local web UI is the first web target. A browser-native version would need a separate frontend/WASM or TypeScript WebGPU layer for image decode/encode, GPU buffer management, and browser compatibility handling.
 
 ## How It Works
 
