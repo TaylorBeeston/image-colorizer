@@ -122,21 +122,7 @@ impl GpuColorizer {
             .await
             .context("Failed to create device")?;
 
-        let color_palette: Vec<ColorizedPixel> = config
-            .colors
-            .iter()
-            .map(|lab| ColorizedPixel {
-                r: lab.l,
-                g: lab.a,
-                b: lab.b,
-            })
-            .collect();
-
-        let color_palette_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Color Palette Buffer"),
-            contents: bytemuck::cast_slice(&color_palette),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+        let color_palette_buffer = create_color_palette_buffer(&device, config);
 
         let pass1_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Colorize Pass 1 Shader"),
@@ -185,6 +171,30 @@ impl GpuColorizer {
             input_data: Vec::new(),
             output_buffers: Vec::new(),
         })
+    }
+
+    /// Update colorization parameters and palette without recreating the GPU device or pipelines.
+    ///
+    /// Existing image-sized scratch buffers are recreated on the next render because pass-one bind
+    /// groups reference the palette buffer.
+    pub fn update_config(&mut self, config: &ColorizerConfig) {
+        self.color_palette_buffer = create_color_palette_buffer(&self.device, config);
+        self.blend_factor = config.blend_factor;
+        self.dither_amount = config.dither_amount;
+        self.spatial_averaging_radius = config.spatial_averaging_radius;
+        self.frame_buffers = None;
+    }
+
+    /// Update scalar parameters without recreating GPU buffers or bind groups.
+    pub fn update_parameters(
+        &mut self,
+        blend_factor: f32,
+        dither_amount: f32,
+        spatial_averaging_radius: u32,
+    ) {
+        self.blend_factor = blend_factor;
+        self.dither_amount = dither_amount;
+        self.spatial_averaging_radius = spatial_averaging_radius;
     }
 
     /// Colorize an image.
@@ -508,6 +518,24 @@ async fn read_output_buffer(
     staging_buffer.unmap();
 
     Ok(())
+}
+
+fn create_color_palette_buffer(device: &wgpu::Device, config: &ColorizerConfig) -> wgpu::Buffer {
+    let color_palette: Vec<ColorizedPixel> = config
+        .colors
+        .iter()
+        .map(|lab| ColorizedPixel {
+            r: lab.l,
+            g: lab.a,
+            b: lab.b,
+        })
+        .collect();
+
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Color Palette Buffer"),
+        contents: bytemuck::cast_slice(&color_palette),
+        usage: wgpu::BufferUsages::STORAGE,
+    })
 }
 
 fn create_storage_buffer<T>(

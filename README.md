@@ -81,7 +81,7 @@ image-colorizer -o ./processed_images input_image1.jpg input_image2.png
 image-colorizer serve
 ```
 
-Then open `http://127.0.0.1:8474`. The web UI runs locally and uses the same native GPU pipeline as the CLI.
+Then open `http://127.0.0.1:8474`. The web UI runs locally and uses the same native GPU pipeline as the CLI. After uploading an image, slider and colorscheme edits re-render the preview automatically. The page can also save the current parameters to `config.toml` and write the edited colorscheme into the config directory.
 
 ## Features
 
@@ -89,7 +89,7 @@ Then open `http://127.0.0.1:8474`. The web UI runs locally and uses the same nat
 - Custom local colorschemes, with missing built-in schemes downloaded automatically
 - Colorscheme interpolation, dithering, and spatial averaging to reduce banding/artifacts
 - Efficient batch processing with one reusable GPU renderer and overlapped image decode/save
-- Local web UI via `image-colorizer serve`
+- Local web UI via `image-colorizer serve` with live parameter/colorscheme preview and config saving
 
 ## Prerequisites
 

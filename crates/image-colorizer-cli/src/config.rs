@@ -115,7 +115,20 @@ pub struct CliConfig {
 #[derive(Debug)]
 pub struct ServeConfig {
     pub bind: SocketAddr,
+    pub config_dir: PathBuf,
+    pub colorscheme: String,
+    pub colorscheme_text: String,
+    pub interpolate_colors: bool,
+    pub interpolation_threshold: f32,
     pub colorizer: ColorizerConfig,
+}
+
+struct ResolvedColorizer {
+    colorizer: ColorizerConfig,
+    colorscheme: String,
+    colorscheme_text: String,
+    interpolate_colors: bool,
+    interpolation_threshold: f32,
 }
 
 fn load_config(config_path: Option<&str>) -> Result<ConfigInfo, AppError> {
@@ -431,7 +444,7 @@ pub async fn init() -> Result<Arc<CliCommand>, AppError> {
         .get_matches();
 
     let ConfigInfo { config, config_dir } = load_config(matches.value_of("Config"))?;
-    let colorizer = resolve_colorizer_config(&matches, &config, &config_dir).await?;
+    let resolved = resolve_colorizer_config(&matches, &config, &config_dir).await?;
 
     if let Some(serve_matches) = matches.subcommand_matches("serve") {
         let bind = serve_matches
@@ -440,7 +453,15 @@ pub async fn init() -> Result<Arc<CliCommand>, AppError> {
             .parse::<SocketAddr>()
             .map_err(|err| AppError::Other(format!("Invalid bind address: {}", err)))?;
 
-        return Ok(Arc::new(CliCommand::Serve(ServeConfig { bind, colorizer })));
+        return Ok(Arc::new(CliCommand::Serve(ServeConfig {
+            bind,
+            config_dir,
+            colorscheme: resolved.colorscheme,
+            colorscheme_text: resolved.colorscheme_text,
+            interpolate_colors: resolved.interpolate_colors,
+            interpolation_threshold: resolved.interpolation_threshold,
+            colorizer: resolved.colorizer,
+        })));
     }
 
     let input_paths: Vec<&str> = matches
@@ -455,7 +476,7 @@ pub async fn init() -> Result<Arc<CliCommand>, AppError> {
 
     Ok(Arc::new(CliCommand::Batch(CliConfig {
         input_output_pairs,
-        colorizer,
+        colorizer: resolved.colorizer,
     })))
 }
 
@@ -463,7 +484,7 @@ async fn resolve_colorizer_config(
     matches: &clap::ArgMatches,
     config: &SerializedAppConfig,
     config_dir: &Path,
-) -> Result<ColorizerConfig, AppError> {
+) -> Result<ResolvedColorizer, AppError> {
     let colorscheme = matches
         .value_of("Colorscheme")
         .unwrap_or(&config.colorscheme);
@@ -509,6 +530,8 @@ async fn resolve_colorizer_config(
     )?;
 
     let colors = load_colorscheme(colorscheme, config_dir).await?;
+    let colorscheme_text = colors.join("\n");
+
     let colors: Vec<Lab> = colors
         .iter()
         .map(|hex| {
@@ -524,11 +547,17 @@ async fn resolve_colorizer_config(
         colors
     };
 
-    Ok(ColorizerConfig {
-        blend_factor,
-        colors,
-        dither_amount,
-        spatial_averaging_radius,
+    Ok(ResolvedColorizer {
+        colorizer: ColorizerConfig {
+            blend_factor,
+            colors,
+            dither_amount,
+            spatial_averaging_radius,
+        },
+        colorscheme: colorscheme.to_string(),
+        colorscheme_text,
+        interpolate_colors: should_interpolate_colors,
+        interpolation_threshold,
     })
 }
 
