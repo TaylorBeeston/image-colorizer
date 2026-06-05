@@ -155,5 +155,24 @@
   </dialog>
 
   <script type="module" src="app.js"></script>
+
+  <dialog id="fallbackModal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2>Using slower mode</h2>
+        <button id="closeFallback" class="modal-close ghost" type="button" aria-label="Close slower mode note">×</button>
+      </div>
+      <div class="fallback-graphic" aria-hidden="true">
+        <span>Browser</span>
+        <strong>CPU</strong>
+        <span>Slower previews</span>
+      </div>
+      <p>Your browser could not use the faster graphics path, so Image Colorizer is using a slower local fallback. It still works, but large images and big radius values can take longer.</p>
+      <p>For faster rendering, use Chrome or Edge with hardware acceleration enabled. If you have the CLI installed, you can also run:</p>
+      <pre><code>cargo install image-colorizer
+image-colorizer serve</code></pre>
+      <p>Then open <code>http://localhost:8474</code>.</p>
+    </div>
+  </dialog>
 </body>
 </html>

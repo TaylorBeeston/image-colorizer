@@ -1,0 +1,31 @@
+{
+  "name": "image-colorizer-web",
+  "type": "module",
+  "collaborators": [
+    "Taylor Beeston <beeston.taylor@gmail.com>"
+  ],
+  "description": "Static client-only WebGPU app for Image Colorizer",
+  "version": "1.1.7",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TaylorBeeston/image-colorizer"
+  },
+  "files": [
+    "image_colorizer_web_bg.wasm",
+    "image_colorizer_web.js",
+    "image_colorizer_web.d.ts"
+  ],
+  "main": "image_colorizer_web.js",
+  "types": "image_colorizer_web.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "image",
+    "color",
+    "gpu",
+    "webgpu",
+    "wgsl"
+  ]
+}

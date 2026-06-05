@@ -1,3 +1,4 @@
+import { CpuColorizer } from './cpu_colorizer.js';
 import { KANAGAWA, WebGpuColorizer, hexToRgb, labToRgb, normalizeHex, parseColorscheme, rgbToLab } from './colorizer.js';
 
 const elements = {
@@ -35,6 +36,8 @@ const elements = {
   helpCopy: document.querySelector('#helpCopy'),
   helpExamples: document.querySelector('#helpExamples'),
   closeHelp: document.querySelector('#closeHelp'),
+  fallbackModal: document.querySelector('#fallbackModal'),
+  closeFallback: document.querySelector('#closeFallback'),
 };
 const sliders = {
   blend: document.querySelector('#blend'),
@@ -88,6 +91,7 @@ let renderAgain = false;
 let currentSplit = 50;
 let dragging = false;
 let loupeEnabled = false;
+let cpuFallbackShown = false;
 let schemes = [];
 
 bootstrap();
@@ -100,7 +104,7 @@ async function bootstrap() {
   setSplit(50);
   loadSchemeBrowser();
 
-  colorizerReady = WebGpuColorizer.create()
+  colorizerReady = createColorizer()
     .then(instance => {
       colorizer = instance;
       setStatus(inputImageData ? 'Ready. Rendering…' : 'Ready.');
@@ -108,6 +112,25 @@ async function bootstrap() {
     })
     .catch(error => setError(error.message || String(error)));
 }
+async function createColorizer() {
+  try {
+    return await WebGpuColorizer.create();
+  } catch {
+    const colorizer = await CpuColorizer.create();
+
+    showCpuFallbackModal();
+
+    return colorizer;
+  }
+}
+
+function showCpuFallbackModal() {
+  if (cpuFallbackShown) return;
+
+  cpuFallbackShown = true;
+  elements.fallbackModal.showModal();
+}
+
 
 function bindEvents() {
   elements.form.addEventListener('submit', event => event.preventDefault());
@@ -137,6 +160,8 @@ function bindEvents() {
   elements.compare.addEventListener('pointerenter', () => { if (loupeEnabled) elements.loupe.classList.add('on'); });
   elements.closeHelp.addEventListener('click', () => elements.helpModal.close());
   elements.helpModal.addEventListener('click', event => { if (event.target === elements.helpModal) elements.helpModal.close(); });
+  elements.closeFallback.addEventListener('click', () => elements.fallbackModal.close());
+  elements.fallbackModal.addEventListener('click', event => { if (event.target === elements.fallbackModal) elements.fallbackModal.close(); });
 
   for (const button of document.querySelectorAll('[data-help]')) button.addEventListener('click', () => openHelp(button.dataset.help));
 }

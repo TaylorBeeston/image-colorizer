@@ -13,4 +13,9 @@ publish = false
 include = ["src/**", "static/**", "Cargo.toml", "../../README.md"]
 
 [lib]
+crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
+
+[dependencies]
+wasm-bindgen.workspace = true
+

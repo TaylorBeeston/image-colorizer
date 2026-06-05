@@ -13,12 +13,11 @@ export class WebGpuColorizer {
   static async create() {
     if (!navigator.gpu) throw new Error(webGpuUnavailableMessage('This browser is missing the graphics support Image Colorizer needs.'));
 
-    const adapter = await withTimeout(
-      navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
-      WEBGPU_START_TIMEOUT_MS,
-      webGpuUnavailableMessage('This browser could not start the graphics renderer.'),
-    );
-    if (!adapter) throw new Error(webGpuUnavailableMessage('This browser could not find a usable graphics device.'));
+    const firstError = { message: '' };
+    const adapter = await requestAdapter({ powerPreference: 'high-performance' }, firstError)
+      || await requestAdapter({ featureLevel: 'compatibility' }, firstError);
+
+    if (!adapter) throw new Error(webGpuUnavailableMessage(firstError.message || 'This browser could not find a usable graphics device.'));
 
     const device = await withTimeout(adapter.requestDevice({
       requiredLimits: {
@@ -429,6 +428,23 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
 
+
+async function requestAdapter(options, firstError) {
+  try {
+    const adapter = await withTimeout(
+      navigator.gpu.requestAdapter(options),
+      WEBGPU_START_TIMEOUT_MS,
+      'This browser could not start the graphics renderer.',
+    );
+
+    if (adapter) return adapter;
+    firstError.message ||= 'This browser could not find a usable graphics device.';
+  } catch (error) {
+    firstError.message ||= error.message || String(error);
+  }
+
+  return undefined;
+}
 
 function withTimeout(promise, ms, message) {
   return Promise.race([
