@@ -1,17 +1,8 @@
 struct WorkingPixel {
-    r: f32,
-    g: f32,
-    b: f32,
-    l: f32,
-    a: f32,
-    lab_b: f32,
+    rgb_l: vec4<f32>,
+    ab: vec4<f32>,
 }
 
-struct ColorizedPixel {
-    r: f32,
-    g: f32,
-    b: f32,
-}
 
 struct Params {
     width: u32,
@@ -22,8 +13,8 @@ struct Params {
 }
 
 @group(0) @binding(0) var<storage, read> working_input : array<WorkingPixel>;
-@group(0) @binding(1) var<storage, read_write> horizontal_average : array<ColorizedPixel>;
-@group(0) @binding(2) var<storage, write> final_output : array<u32>;
+@group(0) @binding(1) var<storage, read_write> horizontal_average : array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read_write> final_output : array<u32>;
 @group(0) @binding(3) var<uniform> params : Params;
 
 fn clamp_color(color: vec3<f32>) -> vec3<f32> {
@@ -59,16 +50,24 @@ fn lab_to_xyz(lab: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(xr * 0.950489, yr, zr * 1.088840);
 }
 
+fn linear_to_srgb(channel: f32) -> f32 {
+    if channel > 0.0031308 {
+        return 1.055 * pow(channel, 1.0 / 2.4) - 0.055;
+    }
+
+    return 12.92 * channel;
+}
+
 fn xyz_to_rgb(xyz: vec3<f32>) -> vec3<f32> {
     let r = xyz.x * 3.2404542 + xyz.y * -1.5371385 + xyz.z * -0.4985314;
     let g = xyz.x * -0.9692660 + xyz.y * 1.8760108 + xyz.z * 0.0415560;
     let b = xyz.x * 0.0556434 + xyz.y * -0.2040259 + xyz.z * 1.0572252;
 
-    let r1 = select(12.92 * r, 1.055 * pow(r, 1.0 / 2.4) - 0.055, r > 0.0031308);
-    let g1 = select(12.92 * g, 1.055 * pow(g, 1.0 / 2.4) - 0.055, g > 0.0031308);
-    let b1 = select(12.92 * b, 1.055 * pow(b, 1.0 / 2.4) - 0.055, b > 0.0031308);
-
-    return vec3<f32>(clamp(r1, 0.0, 1.0), clamp(g1, 0.0, 1.0), clamp(b1, 0.0, 1.0));
+    return clamp(
+        vec3<f32>(linear_to_srgb(r), linear_to_srgb(g), linear_to_srgb(b)),
+        vec3<f32>(0.0),
+        vec3<f32>(1.0),
+    );
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -87,13 +86,13 @@ fn horizontal(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var sample_x = x1; sample_x <= x2; sample_x = sample_x + 1) {
         let sample = working_input[u32(sample_x) + y * params.width];
 
-        sum = sum + vec3<f32>(sample.l, sample.a, sample.lab_b);
+        sum = sum + vec3<f32>(sample.rgb_l.w, sample.ab.x, sample.ab.y);
     }
 
     let average = sum / f32(x2 - x1 + 1);
     let index = x + y * params.width;
 
-    horizontal_average[index] = ColorizedPixel(average.r, average.g, average.b);
+    horizontal_average[index] = vec4<f32>(average, 0.0);
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -112,14 +111,14 @@ fn vertical_final(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var sample_y = y1; sample_y <= y2; sample_y = sample_y + 1) {
         let sample = horizontal_average[x + u32(sample_y) * params.width];
 
-        sum = sum + vec3<f32>(sample.r, sample.g, sample.b);
+        sum = sum + sample.rgb;
     }
 
     let average_lab = sum / f32(y2 - y1 + 1);
     let index = x + y * params.width;
     let input = working_input[index];
-    let input_color = vec3<f32>(input.r, input.g, input.b);
-    let luminance_transferred_lab = vec3<f32>(input.l, average_lab.g, average_lab.b);
+    let input_color = input.rgb_l.rgb;
+    let luminance_transferred_lab = vec3<f32>(input.rgb_l.w, average_lab.g, average_lab.b);
     let luminance_transferred_rgb = lab_to_rgb(luminance_transferred_lab);
     let final_color = clamp_color(mix(input_color, luminance_transferred_rgb, params.blend_factor));
 

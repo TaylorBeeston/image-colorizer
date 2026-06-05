@@ -3,8 +3,8 @@ export const KANAGAWA = [
 ];
 
 const WORKGROUP_SIZE = 16;
-const PIXEL_STRIDE = 12;
-const WORKING_STRIDE = 24;
+const PIXEL_STRIDE = 16;
+const WORKING_STRIDE = 32;
 const PARAMS_SIZE = 32;
 const WEBGPU_START_TIMEOUT_MS = 10_000;
 
@@ -120,8 +120,8 @@ export class WebGpuColorizer {
     this.paletteBuffer?.destroy();
     this.paletteKey = key;
 
-    const data = new Float32Array(palette.length * 3);
-    for (let index = 0; index < palette.length; index++) data.set(palette[index], index * 3);
+    const data = new Float32Array(palette.length * 4);
+    for (let index = 0; index < palette.length; index++) data.set([...palette[index], 0], index * 4);
 
     this.paletteBuffer = this.device.createBuffer({
       label: 'Color palette',
@@ -133,12 +133,13 @@ export class WebGpuColorizer {
   }
 
   writeInput(rgba) {
-    const data = new Float32Array(this.width * this.height * 3);
+    const data = new Float32Array(this.width * this.height * 4);
 
-    for (let source = 0, target = 0; source < rgba.length; source += 4, target += 3) {
+    for (let source = 0, target = 0; source < rgba.length; source += 4, target += 4) {
       data[target] = rgba[source] / 255;
       data[target + 1] = rgba[source + 1] / 255;
       data[target + 2] = rgba[source + 2] / 255;
+      data[target + 3] = 0;
     }
 
     this.queue.writeBuffer(this.buffers.input, 0, data);
@@ -179,7 +180,6 @@ export class WebGpuColorizer {
       entries: [
         { binding: 0, resource: { buffer: this.buffers.working } },
         { binding: 1, resource: { buffer: this.buffers.horizontal } },
-        { binding: 2, resource: { buffer: this.buffers.output } },
         { binding: 3, resource: { buffer: this.buffers.params } },
       ],
     });
@@ -284,7 +284,7 @@ function buildPalette(colors, interpolateColors, threshold) {
 }
 
 async function fetchText(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
 
   return response.text();
