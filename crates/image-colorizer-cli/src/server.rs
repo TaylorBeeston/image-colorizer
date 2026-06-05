@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Multipart, Path as AxumPath, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Response, StatusCode};
 use axum::response::Html;
@@ -114,6 +114,7 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
         .route("/colorschemes/:name", get(fetch_colorscheme))
         .route("/save-colorscheme", post(save_colorscheme))
         .route("/save-config", post(save_config))
+        .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .with_state(state);
 
     eprintln!("Serving Image Colorizer at http://{}", config.bind);

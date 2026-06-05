@@ -191,10 +191,13 @@
     }
 
     .scheme-browser {
+      align-content: start;
       display: grid;
+      grid-auto-rows: max-content;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 7px;
-      max-height: 44vh;
+      height: min(44vh, 520px);
+      min-height: 320px;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 8px 2px 0 0;
@@ -202,9 +205,11 @@
 
     .scheme-card {
       display: grid;
+      grid-template-rows: auto auto auto;
       width: 100%;
       min-width: 0;
       max-width: 100%;
+      min-height: 72px;
       gap: 7px;
       padding: 9px;
       border: 1px solid var(--line);
