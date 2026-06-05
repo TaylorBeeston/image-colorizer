@@ -11,21 +11,21 @@ const WEBGPU_START_TIMEOUT_MS = 10_000;
 
 export class WebGpuColorizer {
   static async create() {
-    if (!navigator.gpu) throw new Error(webGpuUnavailableMessage('This browser does not expose WebGPU.'));
+    if (!navigator.gpu) throw new Error(webGpuUnavailableMessage('This browser is missing the graphics support Image Colorizer needs.'));
 
     const adapter = await withTimeout(
       navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
       WEBGPU_START_TIMEOUT_MS,
-      webGpuUnavailableMessage('Timed out while requesting a WebGPU adapter.'),
+      webGpuUnavailableMessage('This browser could not start the graphics renderer.'),
     );
-    if (!adapter) throw new Error(webGpuUnavailableMessage('No WebGPU adapter was found.'));
+    if (!adapter) throw new Error(webGpuUnavailableMessage('This browser could not find a usable graphics device.'));
 
     const device = await withTimeout(adapter.requestDevice({
       requiredLimits: {
         maxBufferSize: adapter.limits.maxBufferSize,
         maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
       },
-    }), WEBGPU_START_TIMEOUT_MS, webGpuUnavailableMessage('Timed out while creating a WebGPU device.'));
+    }), WEBGPU_START_TIMEOUT_MS, webGpuUnavailableMessage('This browser could not start the graphics renderer.'));
     const [pass1Source, spatialSource] = await Promise.all([
       fetchText('shaders/colorize_pass1.wgsl'),
       fetchText('shaders/spatial_average.wgsl'),
@@ -440,7 +440,7 @@ function withTimeout(promise, ms, message) {
 function webGpuUnavailableMessage(reason) {
   const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
   const secureContext = window.isSecureContext;
-  const transport = secureContext && local ? '' : ' Serve this page from https://, localhost, or 127.0.0.1.';
+  const transport = secureContext && local ? '' : ' Open this page from https://, localhost, or 127.0.0.1.';
 
-  return `${reason} WebGPU is required for the static browser app.${transport} Try current Chrome or Edge with hardware acceleration enabled, or use 'image-colorizer serve' to render through a machine that has a supported GPU.`;
+  return `${reason}${transport} Try current Chrome or Edge with hardware acceleration enabled, or use 'image-colorizer serve'.`;
 }

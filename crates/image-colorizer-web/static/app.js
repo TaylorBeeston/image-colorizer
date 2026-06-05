@@ -83,7 +83,8 @@ let inputLoupeUrl;
 let outputLoupeUrl;
 let outputDownloadUrl;
 let renderTimer;
-let renderId = 0;
+let renderInFlight = false;
+let renderAgain = false;
 let currentSplit = 50;
 let dragging = false;
 let loupeEnabled = false;
@@ -102,7 +103,7 @@ async function bootstrap() {
   colorizerReady = WebGpuColorizer.create()
     .then(instance => {
       colorizer = instance;
-      setStatus(inputImageData ? 'WebGPU ready. Rendering…' : 'WebGPU ready. Choose an image to begin.');
+      setStatus(inputImageData ? 'Ready. Rendering…' : 'Ready.');
       if (inputImageData) scheduleRender(0);
     })
     .catch(error => setError(error.message || String(error)));
@@ -145,11 +146,11 @@ async function loadImage() {
   if (!file) return;
 
   inputFileName = file.name;
-  setStatus('Decoding image…');
+  setStatus('Loading image…');
 
   try {
     inputImageData = await fileToImageData(file);
-    setStatus(colorizer ? 'Rendering on your GPU…' : 'Image decoded. Waiting for WebGPU…');
+    setStatus(colorizer ? 'Rendering…' : 'Preparing…');
     drawImageData(elements.inputCanvas, inputImageData);
     replaceLoupeUrl('input', elements.inputCanvas.toDataURL('image/png'));
     elements.compare.classList.remove('empty');
@@ -168,27 +169,37 @@ function scheduleRender(delay = 120) {
 async function renderImage() {
   if (!inputImageData) return;
 
-  if (!colorizer) {
-    setStatus('Waiting for WebGPU…');
-    await colorizerReady;
-    if (!colorizer) return;
+  if (renderInFlight) {
+    renderAgain = true;
+    return;
   }
-  const id = ++renderId;
-  const options = currentOptions();
 
-  setStatus('Rendering on your GPU…');
+  renderInFlight = true;
+  renderAgain = false;
 
   try {
-    const output = await colorizer.colorize(inputImageData, options);
-    if (id !== renderId) return;
+    if (!colorizer) {
+      setStatus('Preparing…');
+      await colorizerReady;
+      if (!colorizer) return;
+    }
+
+    setStatus('Rendering…');
+    const output = await colorizer.colorize(inputImageData, currentOptions());
 
     drawImageData(elements.outputCanvas, output);
     replaceLoupeUrl('output', elements.outputCanvas.toDataURL('image/png'));
     await updateDownload();
-    setStatus(`Rendered ${output.width}×${output.height} locally.`);
+    setStatus('Rendered.');
   } catch (error) {
-    if (id !== renderId) return;
     setError(error.message || String(error));
+  } finally {
+    renderInFlight = false;
+
+    if (renderAgain) {
+      renderAgain = false;
+      scheduleRender(0);
+    }
   }
 }
 
@@ -342,7 +353,7 @@ function saveConfig() {
 
   localStorage.setItem('image-colorizer:config', JSON.stringify(config));
   downloadText('image-colorizer-config.json', JSON.stringify(config, null, 2), 'application/json');
-  setStatus('Saved config to this browser and downloaded JSON.');
+  setStatus('Saved config.');
 }
 
 function restoreConfig() {
@@ -391,7 +402,7 @@ function saveColorscheme() {
     downloadText(`${name}.txt`, `${text}\n`, 'text/plain');
     schemes = [...localSchemes(), ...schemes.filter(scheme => scheme.source !== 'Saved locally')];
     renderSchemeBrowser();
-    setStatus('Saved colorscheme to this browser and downloaded text.');
+    setStatus('Saved colorscheme.');
   } catch (error) {
     setError(error.message || String(error));
   }
