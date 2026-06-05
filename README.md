@@ -138,10 +138,12 @@ If a requested colorscheme is not found beside the config file, Image Colorizer 
 
 ## Static Browser App
 
-This branch includes a client-only WebGPU app in `web/`. It can be hosted as static files; `netlify.toml` publishes that directory and sets the cross-origin headers browsers expect for GPU-heavy frontend work.
+This branch includes a client-only WebGPU app in `crates/image-colorizer-web/static/`. It is a separate workspace package from the CLI, so `image-colorizer serve` remains the native-GPU server UI for machines where you want a local service backed by that machine's GPU.
+
+The static app can be hosted as plain files; `netlify.toml` publishes the web package's `static/` directory and sets the cross-origin headers browsers expect for GPU-heavy frontend work.
 
 ```bash
-python -m http.server 8080 --directory web
+python -m http.server 8080 --directory crates/image-colorizer-web/static
 ```
 
 Then open `http://127.0.0.1:8080`. The static app decodes images in the browser, runs the same three WGSL compute passes on the user's GPU, and writes the result back into a canvas for preview/download. No image data is uploaded.

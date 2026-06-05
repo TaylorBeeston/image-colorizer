@@ -2,6 +2,7 @@
 members = [
     "crates/image-colorizer-core",
     "crates/image-colorizer-cli",
+    "crates/image-colorizer-web",
 ]
 resolver = "2"
 
