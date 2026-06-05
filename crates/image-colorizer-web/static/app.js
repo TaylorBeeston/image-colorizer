@@ -46,6 +46,9 @@ const elements = {
   openDeepCpuExplain: document.querySelector('#openDeepCpuExplain'),
   deepCpuExplainModal: document.querySelector('#deepCpuExplainModal'),
   closeDeepCpuExplain: document.querySelector('#closeDeepCpuExplain'),
+  openBenchmark: document.querySelector('#openBenchmark'),
+  benchmarkModal: document.querySelector('#benchmarkModal'),
+  closeBenchmark: document.querySelector('#closeBenchmark'),
 };
 const sliders = {
   blend: document.querySelector('#blend'),
@@ -176,12 +179,18 @@ function bindEvents() {
     elements.cpuExplainModal.showModal();
   });
   elements.closeCpuExplain.addEventListener('click', () => elements.cpuExplainModal.close());
+  elements.openBenchmark.addEventListener('click', () => {
+    elements.cpuExplainModal.close();
+    elements.benchmarkModal.showModal();
+  });
   elements.openDeepCpuExplain.addEventListener('click', () => {
     elements.cpuExplainModal.close();
     elements.deepCpuExplainModal.showModal();
   });
   elements.closeDeepCpuExplain.addEventListener('click', () => elements.deepCpuExplainModal.close());
+  elements.closeBenchmark.addEventListener('click', () => elements.benchmarkModal.close());
   elements.deepCpuExplainModal.addEventListener('click', event => { if (event.target === elements.deepCpuExplainModal) elements.deepCpuExplainModal.close(); });
+  elements.benchmarkModal.addEventListener('click', event => { if (event.target === elements.benchmarkModal) elements.benchmarkModal.close(); });
   elements.fallbackModal.addEventListener('click', event => { if (event.target === elements.fallbackModal) elements.fallbackModal.close(); });
   elements.cpuExplainModal.addEventListener('click', event => { if (event.target === elements.cpuExplainModal) elements.cpuExplainModal.close(); });
 

@@ -207,7 +207,10 @@ image-colorizer serve</code></pre>
         </section>
       </div>
       <p>The colorizer touches every pixel several times. The GPU version splits that work into thousands of tiny parallel jobs. CPU fallback has far fewer workers available, so big images and large spatial radius values take longer.</p>
-      <button id="openDeepCpuExplain" class="ghost" type="button">Can you elaborate further?</button>
+      <div class="modal-actions">
+        <button id="openBenchmark" class="ghost" type="button">But does it really make a difference?</button>
+        <button id="openDeepCpuExplain" class="ghost" type="button">Can you elaborate further?</button>
+      </div>
     </div>
   </dialog>
 
@@ -307,6 +310,39 @@ image-colorizer serve</code></pre>
           </div>
         </section>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="benchmarkModal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2>Reference benchmark</h2>
+        <button id="closeBenchmark" class="modal-close ghost" type="button" aria-label="Close benchmark">×</button>
+      </div>
+
+      <p>Measured with the same colorizer settings on synthetic gradient images. Exact speeds vary by device, but this is the scale of the difference when the browser can use the graphics path.</p>
+
+      <div class="benchmark-grid">
+        <section>
+          <h3>512 × 512</h3>
+          <dl>
+            <div><dt>GPU fast path</dt><dd>15.2 ms</dd></div>
+            <div><dt>CPU fallback</dt><dd>405.8 ms</dd></div>
+          </dl>
+          <strong>About 27× faster</strong>
+        </section>
+
+        <section>
+          <h3>1024 × 1024</h3>
+          <dl>
+            <div><dt>GPU fast path</dt><dd>22.9 ms</dd></div>
+            <div><dt>CPU fallback</dt><dd>1,666.4 ms</dd></div>
+          </dl>
+          <strong>About 73× faster</strong>
+        </section>
+      </div>
+
+      <p>The larger image pulls ahead more because the GPU can keep adding parallel chunks, while CPU fallback has to spend much more time walking the same pixels.</p>
     </div>
   </dialog>
 </body>

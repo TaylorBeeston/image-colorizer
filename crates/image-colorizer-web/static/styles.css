@@ -76,7 +76,7 @@ button:disabled { opacity: 0.55; cursor: wait; }
   min-height: calc(100vh - 28px);
   padding: 22px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto 8px minmax(0, 1fr) auto;
   gap: 16px;
 }
 
@@ -163,22 +163,29 @@ input[type=range] { width: 100%; accent-color: var(--blue); margin: 0; }
 .scheme-strip span { min-width: 0; }
 .cpu-progress {
   display: grid;
-  gap: 6px;
   min-width: 0;
+  height: 8px;
+  align-self: center;
+  opacity: 1;
+  transition: opacity 120ms ease;
 }
 
-.cpu-progress[hidden] { display: none; }
+.cpu-progress[hidden] {
+  display: grid;
+  visibility: hidden;
+  opacity: 0;
+}
 
 .cpu-progress-label {
-  color: var(--quiet);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .progress-track {
-  height: 10px;
+  height: 6px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -453,6 +460,51 @@ dialog::backdrop { background: #000a; backdrop-filter: blur(8px); }
 }
 
 
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.benchmark-grid section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-2);
+}
+
+.benchmark-grid h3,
+.benchmark-grid dl,
+.benchmark-grid dd {
+  margin: 0;
+}
+
+.benchmark-grid dl {
+  display: grid;
+  gap: 8px;
+}
+
+.benchmark-grid dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.benchmark-grid dt {
+  color: var(--muted);
+}
+
+.benchmark-grid dd,
+.benchmark-grid strong {
+  color: var(--green);
+  font-weight: 900;
+}
+
 pre {
   margin: 0;
   padding: 0.85rem;
@@ -499,6 +551,7 @@ pre {
   .compare { min-height: 420px; }
   .scheme-modal-grid { grid-template-columns: 1fr; }
   .stage-compare { grid-template-columns: 1fr; }
+  .benchmark-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
