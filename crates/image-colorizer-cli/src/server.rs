@@ -451,96 +451,407 @@ fn server_error(err: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 fn render_index(defaults: &WebDefaults) -> String {
-    format!(
-        r#"<!doctype html>
+    let html = r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Image Colorizer</title>
+  <title>Image Colorizer Workstation</title>
   <style>
-    :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
-    body {{ min-height: 100vh; margin: 0; display: grid; place-items: center; background: #16161d; color: #dcd7ba; }}
-    main {{ width: min(1160px, calc(100vw - 32px)); padding: 32px; border: 1px solid #363646; border-radius: 24px; background: #1f1f28; box-shadow: 0 24px 80px #0008; }}
-    h1 {{ margin: 0 0 8px; font-size: clamp(2rem, 6vw, 4rem); letter-spacing: -0.06em; }}
-    p {{ color: #c8c093; line-height: 1.6; }}
-    form {{ display: grid; gap: 18px; margin: 28px 0; }}
-    fieldset {{ display: grid; gap: 12px; border: 1px solid #363646; border-radius: 18px; padding: 16px; }}
-    label {{ display: grid; gap: 6px; color: #c8c093; }}
-    input, textarea {{ color: #dcd7ba; background: #181820; border: 1px solid #54546d; border-radius: 12px; padding: 10px; }}
-    input[type=file] {{ padding: 24px; border-style: dashed; }}
-    input[type=range] {{ padding: 0; }}
-    textarea {{ min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-    button, a.download {{ width: fit-content; border: 0; border-radius: 999px; padding: 12px 18px; background: #7e9cd8; color: #16161d; font-weight: 700; cursor: pointer; text-decoration: none; }}
-    button.secondary {{ background: #98bb6c; }}
-    button:disabled {{ opacity: 0.55; cursor: wait; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }}
-    .preview {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 24px; }}
-    figure {{ margin: 0; }}
-    figcaption {{ margin-bottom: 8px; color: #938aa9; font-size: 0.9rem; }}
-    img {{ max-width: 100%; border-radius: 16px; background: #0d0c0c; }}
-    .error {{ color: #e46876; white-space: pre-wrap; }}
-    .value {{ color: #7e9cd8; font-variant-numeric: tabular-nums; }}
+    :root {
+      color-scheme: dark;
+      --bg: #111118;
+      --panel: color-mix(in srgb, #1f1f28 90%, #7e9cd8 10%);
+      --panel-2: #181820;
+      --line: #363646;
+      --text: #dcd7ba;
+      --muted: #c8c093;
+      --quiet: #938aa9;
+      --blue: #7e9cd8;
+      --green: #98bb6c;
+      --red: #e46876;
+      --orange: #ffa066;
+      --shadow: 0 28px 90px #0009;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 20% 0%, #2d4f6755, transparent 34rem),
+        radial-gradient(circle at 100% 10%, #957fb855, transparent 30rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    button, input, textarea { font: inherit; }
+
+    button, a.download {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.72rem 1rem;
+      background: var(--blue);
+      color: #111118;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 8px 24px #0005;
+    }
+
+    button.secondary { background: var(--green); }
+    button.ghost { background: #2a2a37; color: var(--text); }
+    button.danger { background: var(--red); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+
+    .app {
+      width: min(1720px, calc(100vw - 28px));
+      margin: 14px auto;
+      display: grid;
+      grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: color-mix(in srgb, var(--panel) 94%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    aside.panel {
+      position: sticky;
+      top: 14px;
+      height: calc(100vh - 28px);
+      overflow: auto;
+      padding: 22px;
+    }
+
+    main.panel {
+      min-height: calc(100vh - 28px);
+      padding: 22px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.4rem); letter-spacing: -0.07em; }
+    h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text); }
+    p { color: var(--muted); line-height: 1.55; }
+    .lede { margin: 0.3rem 0 1.2rem; }
+
+    form { display: grid; gap: 16px; }
+    fieldset { display: grid; gap: 13px; border: 1px solid var(--line); border-radius: 20px; padding: 16px; }
+    legend { padding: 0 0.35rem; color: var(--quiet); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.14em; }
+
+    label.control { display: grid; gap: 7px; }
+    .control-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .control-title { font-weight: 800; }
+    .value { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 800; }
+    .hint { margin: 0; color: var(--quiet); font-size: 0.86rem; }
+
+    input[type=file], input[type=text], textarea {
+      width: 100%;
+      color: var(--text);
+      background: var(--panel-2);
+      border: 1px solid #54546d;
+      border-radius: 14px;
+      padding: 0.78rem;
+    }
+
+    input[type=file] { border-style: dashed; }
+    textarea { min-height: 210px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; line-height: 1.45; }
+    input[type=range] { width: 100%; accent-color: var(--blue); }
+
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .toggle { display: flex; gap: 0.6rem; align-items: center; color: var(--muted); }
+
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+      gap: 8px;
+    }
+
+    .swatch {
+      aspect-ratio: 1;
+      border: 1px solid #ffffff33;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 2px #0005;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 14px;
+    }
+
+    .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .status { margin: 0; min-height: 1.5em; color: var(--muted); }
+    .status.error { color: var(--red); white-space: pre-wrap; }
+
+    .compare {
+      position: relative;
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #0d0c0c 25%, transparent 25%),
+        linear-gradient(-45deg, #0d0c0c 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #0d0c0c 75%),
+        linear-gradient(-45deg, transparent 75%, #0d0c0c 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .compare.empty::before {
+      content: "Drop in an image to begin";
+      color: var(--quiet);
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .compare img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    .image-layer {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .after-layer { clip-path: inset(0 0 0 50%); }
+
+    .divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 3px;
+      transform: translateX(-50%);
+      background: var(--blue);
+      box-shadow: 0 0 0 1px #111118, 0 0 28px var(--blue);
+      cursor: ew-resize;
+    }
+
+    .divider::after {
+      content: "↔";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--blue);
+      color: #111118;
+      font-weight: 900;
+    }
+
+    .badge {
+      position: absolute;
+      top: 14px;
+      padding: 0.38rem 0.65rem;
+      border-radius: 999px;
+      background: #111118cc;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .badge.before { left: 14px; }
+    .badge.after { right: 14px; }
+
+    .loupe {
+      position: fixed;
+      width: 190px;
+      height: 190px;
+      border: 2px solid var(--blue);
+      border-radius: 999px;
+      box-shadow: 0 20px 50px #000a, inset 0 0 0 1px #fff4;
+      background-repeat: no-repeat;
+      background-color: #111118;
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+    }
+
+    .loupe.on { display: block; }
+
+    .small { font-size: 0.85rem; color: var(--quiet); }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      aside.panel { position: static; height: auto; }
+      .compare { min-height: 420px; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <h1>Image Colorizer</h1>
-    <p>Upload an image, then tune parameters live. Most changes re-render immediately using the local native GPU pipeline.</p>
-    <form id="form">
-      <input id="file" name="image" type="file" accept="image/*">
-      <section class="grid">
+  <div class="app">
+    <aside class="panel">
+      <h1>Colorizer Workstation</h1>
+      <p class="lede">Tune the native GPU pipeline live. Upload once; almost every control re-renders the preview.</p>
+
+      <form id="form">
+        <fieldset>
+          <legend>Source</legend>
+          <input id="file" name="image" type="file" accept="image/*">
+          <p class="hint">The image stays on this machine and is stored only in this local server process.</p>
+        </fieldset>
+
         <fieldset>
           <legend>Parameters</legend>
-          <label>Blend <span class="value" id="blendValue"></span><input id="blend" name="blend_factor" type="range" min="0" max="1" step="0.01" value="{blend_factor}"></label>
-          <label>Dither <span class="value" id="ditherValue"></span><input id="dither" name="dither_amount" type="range" min="0" max="1" step="0.01" value="{dither_amount}"></label>
-          <label>Spatial radius <span class="value" id="radiusValue"></span><input id="radius" name="spatial_averaging_radius" type="range" min="0" max="100" step="1" value="{spatial_averaging_radius}"></label>
-          <label>Interpolation threshold <span class="value" id="thresholdValue"></span><input id="threshold" name="interpolation_threshold" type="range" min="0.1" max="100" step="0.1" value="{interpolation_threshold}"></label>
-          <label><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" {interpolate_checked}> Interpolate colorscheme</label>
+
+          <label class="control">
+            <span class="control-head"><span class="control-title">Blend</span><span class="value" id="blendValue"></span></span>
+            <input id="blend" name="blend_factor" type="range" min="0" max="1" step="0.01" value="__BLEND__">
+            <p class="hint">How strongly the palette result replaces the original. Lower keeps more source color.</p>
+          </label>
+
+          <label class="control">
+            <span class="control-head"><span class="control-title">Dither</span><span class="value" id="ditherValue"></span></span>
+            <input id="dither" name="dither_amount" type="range" min="0" max="1" step="0.01" value="__DITHER__">
+            <p class="hint">Adds controlled noise before final transfer to reduce flat bands and posterization.</p>
+          </label>
+
+          <label class="control">
+            <span class="control-head"><span class="control-title">Spatial radius</span><span class="value" id="radiusValue"></span></span>
+            <input id="radius" name="spatial_averaging_radius" type="range" min="0" max="100" step="1" value="__RADIUS__">
+            <p class="hint">Samples nearby pixels for smoother chroma. Bigger radii are softer and more painterly.</p>
+          </label>
+
+          <label class="control">
+            <span class="control-head"><span class="control-title">Interpolation threshold</span><span class="value" id="thresholdValue"></span></span>
+            <input id="threshold" name="interpolation_threshold" type="range" min="0.1" max="100" step="0.1" value="__THRESHOLD__">
+            <p class="hint">Controls inserted palette colors in Lab space. Lower values create denser ramps.</p>
+          </label>
+
+          <label class="toggle"><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" __INTERPOLATE_CHECKED__> Interpolate colorscheme</label>
         </fieldset>
+
         <fieldset>
           <legend>Colorscheme</legend>
-          <label>Name<input id="schemeName" name="colorscheme_name" value="{colorscheme}"></label>
-          <label>Colors<textarea id="schemeText" name="colorscheme_text" spellcheck="false">{colorscheme_text}</textarea></label>
+          <label class="control">
+            <span class="control-title">Name</span>
+            <input id="schemeName" name="colorscheme_name" type="text" value="__COLORSCHEME__">
+          </label>
+          <div class="swatches" id="swatches"></div>
+          <div class="row">
+            <input id="newColor" type="text" placeholder="#7e9cd8" aria-label="New color">
+            <button id="addColor" class="ghost" type="button">Add color</button>
+            <button id="sortColors" class="ghost" type="button">Sort</button>
+          </div>
+          <label class="control">
+            <span class="control-title">Colors</span>
+            <textarea id="schemeText" name="colorscheme_text" spellcheck="false">__COLORSCHEME_TEXT__</textarea>
+            <p class="hint">One hex color per line. Comments with <code>//</code> are ignored. Click a swatch to remove it.</p>
+          </label>
         </fieldset>
+
+        <div class="row">
+          <button id="render" type="submit">Render now</button>
+          <button id="saveConfig" class="secondary" type="button">Save config</button>
+        </div>
+      </form>
+    </aside>
+
+    <main class="panel workspace">
+      <div class="toolbar">
+        <p id="status" class="status">Ready.</p>
+        <div class="row">
+          <button id="toggleLoupe" class="ghost" type="button">Loupe: off</button>
+          <a id="download" class="download" hidden>Download result</a>
+        </div>
+      </div>
+
+      <section id="compare" class="compare empty">
+        <div class="image-layer before-layer"><img id="inputPreview" alt="Original image preview"></div>
+        <div class="image-layer after-layer" id="afterLayer"><img id="outputPreview" alt="Colorized image preview"></div>
+        <span class="badge before">Original</span>
+        <span class="badge after">Colorized</span>
+        <div id="divider" class="divider" role="slider" aria-label="Comparison split" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></div>
       </section>
-      <p>
-        <button id="render" type="submit">Colorize image</button>
-        <button id="saveConfig" class="secondary" type="button">Save config and colorscheme</button>
-      </p>
-    </form>
-    <p id="status"></p>
-    <section class="preview">
-      <figure id="inputFigure" hidden><figcaption>Original</figcaption><img id="inputPreview" alt="Original image preview"></figure>
-      <figure id="outputFigure" hidden><figcaption>Colorized</figcaption><img id="outputPreview" alt="Colorized image preview"></figure>
-    </section>
-    <p><a id="download" class="download" hidden>Download result</a></p>
-  </main>
+
+      <p class="small">Drag the center handle to A/B the image. Turn on the loupe and move over the preview to inspect pixels.</p>
+    </main>
+  </div>
+
+  <div id="loupe" class="loupe"></div>
+
   <script>
     const form = document.querySelector('#form');
     const file = document.querySelector('#file');
+    const compare = document.querySelector('#compare');
+    const afterLayer = document.querySelector('#afterLayer');
+    const divider = document.querySelector('#divider');
+    const loupe = document.querySelector('#loupe');
+    const toggleLoupe = document.querySelector('#toggleLoupe');
     const status = document.querySelector('#status');
-    const inputFigure = document.querySelector('#inputFigure');
-    const outputFigure = document.querySelector('#outputFigure');
     const inputPreview = document.querySelector('#inputPreview');
     const outputPreview = document.querySelector('#outputPreview');
     const download = document.querySelector('#download');
     const render = document.querySelector('#render');
     const saveConfig = document.querySelector('#saveConfig');
+    const schemeText = document.querySelector('#schemeText');
+    const schemeName = document.querySelector('#schemeName');
+    const swatches = document.querySelector('#swatches');
+    const newColor = document.querySelector('#newColor');
     const controls = ['blend', 'dither', 'radius', 'threshold'];
     let inputUrl;
     let outputUrl;
     let requestId = 0;
     let debounceTimer;
+    let loupeEnabled = false;
 
-    function syncValues() {{
+    function syncValues() {
       blendValue.textContent = blend.value;
       ditherValue.textContent = dither.value;
       radiusValue.textContent = radius.value;
       thresholdValue.textContent = threshold.value;
-    }}
+      renderSwatches();
+    }
 
-    function formData(includeImage) {{
+    function colors() {
+      return schemeText.value.split('\n')
+        .map(line => line.split('//')[0].trim())
+        .filter(line => /^#[0-9a-fA-F]{6}$/.test(line) || /^#[0-9a-fA-F]{3}$/.test(line));
+    }
+
+    function renderSwatches() {
+      swatches.innerHTML = '';
+      for (const color of colors()) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'swatch';
+        button.style.background = color;
+        button.title = `${color} — click to remove`;
+        button.addEventListener('click', () => {
+          schemeText.value = schemeText.value.split('\n').filter(line => line.trim() !== color).join('\n');
+          schedulePreview();
+        });
+        swatches.append(button);
+      }
+    }
+
+    function formData(includeImage) {
       const data = new FormData();
       if (includeImage && file.files[0]) data.append('image', file.files[0]);
       data.append('blend_factor', blend.value);
@@ -551,91 +862,156 @@ fn render_index(defaults: &WebDefaults) -> String {
       data.append('colorscheme_name', schemeName.value);
       data.append('colorscheme_text', schemeText.value);
       return data;
-    }}
+    }
 
-    async function renderPreview(includeImage = false) {{
+    async function renderPreview(includeImage = false) {
       if (!file.files.length && includeImage) return;
       const id = ++requestId;
-      status.className = '';
-      status.textContent = 'Colorizing...';
+      status.className = 'status';
+      status.textContent = 'Rendering…';
       render.disabled = true;
-      try {{
-        const response = await fetch('/colorize', {{ method: 'POST', body: formData(includeImage) }});
+      try {
+        const response = await fetch('/colorize', { method: 'POST', body: formData(includeImage) });
         if (!response.ok) throw new Error(await response.text());
         if (id !== requestId) return;
         const blob = await response.blob();
         if (outputUrl) URL.revokeObjectURL(outputUrl);
         outputUrl = URL.createObjectURL(blob);
         outputPreview.src = outputUrl;
-        outputFigure.hidden = false;
         download.href = outputUrl;
         download.download = file.files[0]?.name?.replace(/\.[^.]*$/, '_colorized.png') || 'colorized.png';
         download.hidden = false;
-        status.textContent = 'Done.';
-      }} catch (error) {{
+        compare.classList.remove('empty');
+        status.textContent = 'Rendered.';
+      } catch (error) {
         if (id !== requestId) return;
-        status.className = 'error';
+        status.className = 'status error';
         status.textContent = error.message || String(error);
-      }} finally {{
+      } finally {
         if (id === requestId) render.disabled = false;
-      }}
-    }}
+      }
+    }
 
-    function schedulePreview() {{
+    function schedulePreview() {
       syncValues();
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => renderPreview(false), 120);
-    }}
+    }
 
-    file.addEventListener('change', () => {{
+    function setSplit(percent) {
+      const clamped = Math.max(0, Math.min(100, percent));
+      afterLayer.style.clipPath = `inset(0 0 0 ${clamped}%)`;
+      divider.style.left = `${clamped}%`;
+      divider.setAttribute('aria-valuenow', String(Math.round(clamped)));
+    }
+
+    compare.addEventListener('pointerdown', event => {
+      if (compare.classList.contains('empty')) return;
+      const move = event => {
+        const rect = compare.getBoundingClientRect();
+        setSplit(((event.clientX - rect.left) / rect.width) * 100);
+      };
+      move(event);
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', () => document.removeEventListener('pointermove', move), { once: true });
+    });
+
+    compare.addEventListener('pointermove', event => {
+      if (!loupeEnabled || compare.classList.contains('empty') || !outputUrl) return;
+      const rect = compare.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      loupe.style.left = `${event.clientX + 18}px`;
+      loupe.style.top = `${event.clientY + 18}px`;
+      loupe.style.backgroundImage = `url(${outputUrl})`;
+      loupe.style.backgroundSize = `${rect.width * 5}px ${rect.height * 5}px`;
+      loupe.style.backgroundPosition = `${-(x * 5 - 95)}px ${-(y * 5 - 95)}px`;
+    });
+
+    compare.addEventListener('pointerleave', () => loupe.classList.remove('on'));
+    compare.addEventListener('pointerenter', () => { if (loupeEnabled) loupe.classList.add('on'); });
+
+    toggleLoupe.addEventListener('click', () => {
+      loupeEnabled = !loupeEnabled;
+      toggleLoupe.textContent = `Loupe: ${loupeEnabled ? 'on' : 'off'}`;
+      loupe.classList.toggle('on', loupeEnabled);
+    });
+
+    file.addEventListener('change', () => {
       if (inputUrl) URL.revokeObjectURL(inputUrl);
       if (!file.files.length) return;
       inputUrl = URL.createObjectURL(file.files[0]);
       inputPreview.src = inputUrl;
-      inputFigure.hidden = false;
+      compare.classList.remove('empty');
       renderPreview(true);
-    }});
+    });
 
-    form.addEventListener('submit', (event) => {{
+    form.addEventListener('submit', event => {
       event.preventDefault();
       renderPreview(true);
-    }});
+    });
 
     for (const id of controls) document.querySelector('#' + id).addEventListener('input', schedulePreview);
     interpolate.addEventListener('change', schedulePreview);
     schemeText.addEventListener('input', schedulePreview);
     schemeName.addEventListener('input', syncValues);
 
-    saveConfig.addEventListener('click', async () => {{
-      status.className = '';
-      status.textContent = 'Saving config...';
-      try {{
-        const response = await fetch('/save-config', {{ method: 'POST', body: formData(false) }});
+    addColor.addEventListener('click', () => {
+      const color = newColor.value.trim();
+      if (!/^#[0-9a-fA-F]{6}$/.test(color) && !/^#[0-9a-fA-F]{3}$/.test(color)) {
+        status.className = 'status error';
+        status.textContent = 'Use a hex color like #7e9cd8.';
+        return;
+      }
+      schemeText.value = `${schemeText.value.trim()}\n${color}`.trim();
+      newColor.value = '';
+      schedulePreview();
+    });
+
+    sortColors.addEventListener('click', () => {
+      schemeText.value = colors().sort().join('\n');
+      schedulePreview();
+    });
+
+    saveConfig.addEventListener('click', async () => {
+      status.className = 'status';
+      status.textContent = 'Saving config…';
+      try {
+        const response = await fetch('/save-config', { method: 'POST', body: formData(false) });
         if (!response.ok) throw new Error(await response.text());
         status.textContent = await response.text();
-      }} catch (error) {{
-        status.className = 'error';
+      } catch (error) {
+        status.className = 'status error';
         status.textContent = error.message || String(error);
-      }}
-    }});
+      }
+    });
 
     syncValues();
+    setSplit(50);
   </script>
 </body>
-</html>
-"#,
-        blend_factor = defaults.blend_factor,
-        dither_amount = defaults.dither_amount,
-        spatial_averaging_radius = defaults.spatial_averaging_radius,
-        interpolation_threshold = defaults.interpolation_threshold,
-        interpolate_checked = if defaults.interpolate_colors {
-            "checked"
-        } else {
-            ""
-        },
-        colorscheme = escape_html(&defaults.colorscheme),
-        colorscheme_text = escape_html(&defaults.colorscheme_text),
-    )
+</html>"##;
+
+    html.replace("__BLEND__", &defaults.blend_factor.to_string())
+        .replace("__DITHER__", &defaults.dither_amount.to_string())
+        .replace("__RADIUS__", &defaults.spatial_averaging_radius.to_string())
+        .replace(
+            "__THRESHOLD__",
+            &defaults.interpolation_threshold.to_string(),
+        )
+        .replace(
+            "__INTERPOLATE_CHECKED__",
+            if defaults.interpolate_colors {
+                "checked"
+            } else {
+                ""
+            },
+        )
+        .replace("__COLORSCHEME__", &escape_html(&defaults.colorscheme))
+        .replace(
+            "__COLORSCHEME_TEXT__",
+            &escape_html(&defaults.colorscheme_text),
+        )
 }
 
 fn escape_html(input: &str) -> String {
