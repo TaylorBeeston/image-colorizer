@@ -1004,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "image-colorizer"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "image-colorizer-core"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "bytemuck",
