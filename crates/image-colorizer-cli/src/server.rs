@@ -1,20 +1,23 @@
 use crate::config::{AppError, ServeConfig};
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Multipart, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path as AxumPath, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Response, StatusCode};
 use axum::response::Html;
 use axum::routing::{get, post};
-use axum::Router;
+use axum::{Json, Router};
+use futures::{stream, StreamExt};
 use image::codecs::png::PngEncoder;
 use image::{ColorType, DynamicImage, ImageEncoder};
 use image_colorizer_core::utils::{hex_to_rgb, interpolate_color};
 use image_colorizer_core::{ColorizerConfig, GpuColorizer, RenderedImage};
 use palette::{color_difference::ImprovedCiede2000, FromColor, Lab};
+use serde_derive::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 struct AppState {
@@ -51,6 +54,35 @@ struct WebRequest {
     interpolation_threshold: f32,
 }
 
+#[derive(Debug, Serialize)]
+struct ColorschemeSummary {
+    name: String,
+    colors: Vec<String>,
+    source: ColorschemeSource,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ColorschemeSource {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Serialize)]
+struct ColorschemeDetail {
+    name: String,
+    text: String,
+    colors: Vec<String>,
+    source: ColorschemeSource,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubContent {
+    name: String,
+    #[serde(default)]
+    download_url: Option<String>,
+}
+
 pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
     let colorizer = GpuColorizer::new(&config.colorizer).await?;
     let state = Arc::new(AppState {
@@ -78,7 +110,11 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
     let app = Router::new()
         .route("/", get(index))
         .route("/colorize", post(colorize_upload))
+        .route("/colorschemes", get(list_colorschemes))
+        .route("/colorschemes/:name", get(fetch_colorscheme))
+        .route("/save-colorscheme", post(save_colorscheme))
         .route("/save-config", post(save_config))
+        .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .with_state(state);
 
     eprintln!("Serving Image Colorizer at http://{}", config.bind);
@@ -163,16 +199,9 @@ async fn save_config(
     request.to_colorizer_config()?;
 
     let colorscheme_name = sanitize_config_name(&request.colorscheme_name);
-    let colorscheme_path = state
-        .defaults
-        .config_dir
-        .join(format!("{}.txt", colorscheme_name));
     let config_path = state.defaults.config_dir.join("config.toml");
 
     tokio::fs::create_dir_all(&state.defaults.config_dir)
-        .await
-        .map_err(server_error)?;
-    tokio::fs::write(&colorscheme_path, request.colorscheme_text.as_bytes())
         .await
         .map_err(server_error)?;
     tokio::fs::write(
@@ -197,11 +226,115 @@ async fn save_config(
             HeaderValue::from_static("text/plain; charset=utf-8"),
         )
         .body(Body::from(format!(
-            "Saved {} and {}",
-            config_path.display(),
+            "Saved config to {}",
+            config_path.display()
+        )))
+        .map_err(server_error)
+}
+
+async fn save_colorscheme(
+    State(state): State<Arc<AppState>>,
+    multipart: Multipart,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let request = parse_web_request(multipart, &state.defaults).await?;
+    parse_colorscheme_hex(&request.colorscheme_text)?;
+
+    let colorscheme_name = sanitize_config_name(&request.colorscheme_name);
+    let colorscheme_path = state
+        .defaults
+        .config_dir
+        .join(format!("{}.txt", colorscheme_name));
+
+    tokio::fs::create_dir_all(&state.defaults.config_dir)
+        .await
+        .map_err(server_error)?;
+    tokio::fs::write(&colorscheme_path, request.colorscheme_text.as_bytes())
+        .await
+        .map_err(server_error)?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        )
+        .body(Body::from(format!(
+            "Saved colorscheme to {}",
             colorscheme_path.display()
         )))
         .map_err(server_error)
+}
+
+async fn list_colorschemes(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<ColorschemeSummary>>, (StatusCode, String)> {
+    let mut schemes = Vec::new();
+
+    if let Ok(mut entries) = tokio::fs::read_dir(&state.defaults.config_dir).await {
+        while let Some(entry) = entries.next_entry().await.map_err(server_error)? {
+            let path = entry.path();
+
+            if path.extension().and_then(|extension| extension.to_str()) != Some("txt") {
+                continue;
+            }
+
+            let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let content = tokio::fs::read_to_string(&path)
+                .await
+                .map_err(server_error)?;
+
+            if let Ok(colors) = parse_colorscheme_hex(&content) {
+                schemes.push(ColorschemeSummary {
+                    name: name.to_string(),
+                    colors,
+                    source: ColorschemeSource::Local,
+                });
+            }
+        }
+    }
+
+    for scheme in remote_colorschemes().await? {
+        if schemes.iter().any(|existing| existing.name == scheme.name) {
+            continue;
+        }
+
+        schemes.push(scheme);
+    }
+
+    schemes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(Json(schemes))
+}
+
+async fn fetch_colorscheme(
+    AxumPath(name): AxumPath<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ColorschemeDetail>, (StatusCode, String)> {
+    let name = sanitize_config_name(&name);
+    let local_path = state.defaults.config_dir.join(format!("{}.txt", name));
+
+    if let Ok(text) = tokio::fs::read_to_string(&local_path).await {
+        let colors = parse_colorscheme_hex(&text)?;
+
+        return Ok(Json(ColorschemeDetail {
+            name,
+            text,
+            colors,
+            source: ColorschemeSource::Local,
+        }));
+    }
+
+    let text = download_remote_colorscheme(&name).await?;
+    let colors = parse_colorscheme_hex(&text)?;
+
+    Ok(Json(ColorschemeDetail {
+        name,
+        text,
+        colors,
+        source: ColorschemeSource::Remote,
+    }))
 }
 
 impl WebRequest {
@@ -281,6 +414,188 @@ async fn parse_web_request(
         spatial_averaging_radius,
         interpolate_colors,
         interpolation_threshold,
+    })
+}
+
+async fn remote_colorschemes() -> Result<Vec<ColorschemeSummary>, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.github.com/repos/tinted-theming/schemes/contents/base16")
+        .header("User-Agent", "image-colorizer")
+        .send()
+        .await
+        .map_err(server_error)?;
+
+    if !response.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Tinted colorscheme list returned {}", response.status()),
+        ));
+    }
+
+    let contents = response
+        .json::<Vec<GithubContent>>()
+        .await
+        .map_err(server_error)?;
+    let files = contents.into_iter().filter_map(|item| {
+        let name = item
+            .name
+            .strip_suffix(".yaml")
+            .or_else(|| item.name.strip_suffix(".yml"))?
+            .to_string();
+        let url = item.download_url?;
+
+        Some((name, url))
+    });
+    let mut downloads = stream::iter(files)
+        .map(|(name, url)| {
+            let client = &client;
+
+            async move {
+                let text = download_url(client, &url).await.ok()?;
+                let colors = parse_base16_yaml_hex(&text).ok()?;
+
+                Some(ColorschemeSummary {
+                    name,
+                    colors,
+                    source: ColorschemeSource::Remote,
+                })
+            }
+        })
+        .buffer_unordered(24);
+    let mut schemes = Vec::new();
+
+    while let Some(scheme) = downloads.next().await {
+        let Some(scheme) = scheme else {
+            continue;
+        };
+
+        schemes.push(scheme);
+    }
+
+    Ok(schemes)
+}
+
+async fn download_remote_colorscheme(name: &str) -> Result<String, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+
+    for extension in ["yaml", "yml"] {
+        let url = format!(
+            "https://raw.githubusercontent.com/tinted-theming/schemes/spec-0.11/base16/{}.{}",
+            name.to_lowercase(),
+            extension
+        );
+        let Ok(text) = download_url(&client, &url).await else {
+            continue;
+        };
+        let Ok(colors) = parse_base16_yaml_hex(&text) else {
+            continue;
+        };
+
+        return Ok(colors.join("\n"));
+    }
+
+    Err((
+        StatusCode::BAD_GATEWAY,
+        format!("Could not download colorscheme '{}'", name),
+    ))
+}
+
+async fn download_url(client: &reqwest::Client, url: &str) -> Result<String, (StatusCode, String)> {
+    let response = client
+        .get(url)
+        .header("User-Agent", "image-colorizer")
+        .send()
+        .await
+        .map_err(server_error)?;
+
+    if response.status().is_success() {
+        response.text().await.map_err(server_error)
+    } else {
+        Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Could not download colorscheme: {}", response.status()),
+        ))
+    }
+}
+
+fn parse_colorscheme_hex(content: &str) -> Result<Vec<String>, (StatusCode, String)> {
+    let colors = content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.split("//").next().unwrap_or("").trim();
+
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .map(normalize_hex_color)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if colors.is_empty() {
+        Err((
+            StatusCode::BAD_REQUEST,
+            "Colorscheme must contain at least one color".to_string(),
+        ))
+    } else {
+        Ok(colors)
+    }
+}
+
+fn parse_base16_yaml_hex(content: &str) -> Result<Vec<String>, (StatusCode, String)> {
+    let mut colors = BTreeMap::new();
+
+    for line in content.lines() {
+        let Some((key, value)) = line.trim().split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+
+        if !key.starts_with("base") {
+            continue;
+        }
+
+        let value = value
+            .trim()
+            .split(" #")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'');
+
+        if value.is_empty() {
+            continue;
+        }
+
+        colors.insert(key.to_string(), normalize_hex_color(value)?);
+    }
+
+    if colors.is_empty() {
+        Err((
+            StatusCode::BAD_REQUEST,
+            "Base16 colorscheme must contain base colors".to_string(),
+        ))
+    } else {
+        Ok(colors.into_values().collect())
+    }
+}
+
+fn normalize_hex_color(hex: &str) -> Result<String, (StatusCode, String)> {
+    let hex = hex.trim();
+    let normalized = if hex.starts_with('#') {
+        hex.to_string()
+    } else {
+        format!("#{}", hex)
+    };
+
+    hex_to_rgb(&normalized).map(|_| normalized).map_err(|err| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Invalid color '{}': {}", hex, err),
+        )
     })
 }
 
@@ -451,191 +766,27 @@ fn server_error(err: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 fn render_index(defaults: &WebDefaults) -> String {
-    format!(
-        r#"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Image Colorizer</title>
-  <style>
-    :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
-    body {{ min-height: 100vh; margin: 0; display: grid; place-items: center; background: #16161d; color: #dcd7ba; }}
-    main {{ width: min(1160px, calc(100vw - 32px)); padding: 32px; border: 1px solid #363646; border-radius: 24px; background: #1f1f28; box-shadow: 0 24px 80px #0008; }}
-    h1 {{ margin: 0 0 8px; font-size: clamp(2rem, 6vw, 4rem); letter-spacing: -0.06em; }}
-    p {{ color: #c8c093; line-height: 1.6; }}
-    form {{ display: grid; gap: 18px; margin: 28px 0; }}
-    fieldset {{ display: grid; gap: 12px; border: 1px solid #363646; border-radius: 18px; padding: 16px; }}
-    label {{ display: grid; gap: 6px; color: #c8c093; }}
-    input, textarea {{ color: #dcd7ba; background: #181820; border: 1px solid #54546d; border-radius: 12px; padding: 10px; }}
-    input[type=file] {{ padding: 24px; border-style: dashed; }}
-    input[type=range] {{ padding: 0; }}
-    textarea {{ min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-    button, a.download {{ width: fit-content; border: 0; border-radius: 999px; padding: 12px 18px; background: #7e9cd8; color: #16161d; font-weight: 700; cursor: pointer; text-decoration: none; }}
-    button.secondary {{ background: #98bb6c; }}
-    button:disabled {{ opacity: 0.55; cursor: wait; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }}
-    .preview {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 24px; }}
-    figure {{ margin: 0; }}
-    figcaption {{ margin-bottom: 8px; color: #938aa9; font-size: 0.9rem; }}
-    img {{ max-width: 100%; border-radius: 16px; background: #0d0c0c; }}
-    .error {{ color: #e46876; white-space: pre-wrap; }}
-    .value {{ color: #7e9cd8; font-variant-numeric: tabular-nums; }}
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Image Colorizer</h1>
-    <p>Upload an image, then tune parameters live. Most changes re-render immediately using the local native GPU pipeline.</p>
-    <form id="form">
-      <input id="file" name="image" type="file" accept="image/*">
-      <section class="grid">
-        <fieldset>
-          <legend>Parameters</legend>
-          <label>Blend <span class="value" id="blendValue"></span><input id="blend" name="blend_factor" type="range" min="0" max="1" step="0.01" value="{blend_factor}"></label>
-          <label>Dither <span class="value" id="ditherValue"></span><input id="dither" name="dither_amount" type="range" min="0" max="1" step="0.01" value="{dither_amount}"></label>
-          <label>Spatial radius <span class="value" id="radiusValue"></span><input id="radius" name="spatial_averaging_radius" type="range" min="0" max="100" step="1" value="{spatial_averaging_radius}"></label>
-          <label>Interpolation threshold <span class="value" id="thresholdValue"></span><input id="threshold" name="interpolation_threshold" type="range" min="0.1" max="100" step="0.1" value="{interpolation_threshold}"></label>
-          <label><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" {interpolate_checked}> Interpolate colorscheme</label>
-        </fieldset>
-        <fieldset>
-          <legend>Colorscheme</legend>
-          <label>Name<input id="schemeName" name="colorscheme_name" value="{colorscheme}"></label>
-          <label>Colors<textarea id="schemeText" name="colorscheme_text" spellcheck="false">{colorscheme_text}</textarea></label>
-        </fieldset>
-      </section>
-      <p>
-        <button id="render" type="submit">Colorize image</button>
-        <button id="saveConfig" class="secondary" type="button">Save config and colorscheme</button>
-      </p>
-    </form>
-    <p id="status"></p>
-    <section class="preview">
-      <figure id="inputFigure" hidden><figcaption>Original</figcaption><img id="inputPreview" alt="Original image preview"></figure>
-      <figure id="outputFigure" hidden><figcaption>Colorized</figcaption><img id="outputPreview" alt="Colorized image preview"></figure>
-    </section>
-    <p><a id="download" class="download" hidden>Download result</a></p>
-  </main>
-  <script>
-    const form = document.querySelector('#form');
-    const file = document.querySelector('#file');
-    const status = document.querySelector('#status');
-    const inputFigure = document.querySelector('#inputFigure');
-    const outputFigure = document.querySelector('#outputFigure');
-    const inputPreview = document.querySelector('#inputPreview');
-    const outputPreview = document.querySelector('#outputPreview');
-    const download = document.querySelector('#download');
-    const render = document.querySelector('#render');
-    const saveConfig = document.querySelector('#saveConfig');
-    const controls = ['blend', 'dither', 'radius', 'threshold'];
-    let inputUrl;
-    let outputUrl;
-    let requestId = 0;
-    let debounceTimer;
-
-    function syncValues() {{
-      blendValue.textContent = blend.value;
-      ditherValue.textContent = dither.value;
-      radiusValue.textContent = radius.value;
-      thresholdValue.textContent = threshold.value;
-    }}
-
-    function formData(includeImage) {{
-      const data = new FormData();
-      if (includeImage && file.files[0]) data.append('image', file.files[0]);
-      data.append('blend_factor', blend.value);
-      data.append('dither_amount', dither.value);
-      data.append('spatial_averaging_radius', radius.value);
-      data.append('interpolation_threshold', threshold.value);
-      data.append('interpolate_colors', interpolate.checked ? 'true' : 'false');
-      data.append('colorscheme_name', schemeName.value);
-      data.append('colorscheme_text', schemeText.value);
-      return data;
-    }}
-
-    async function renderPreview(includeImage = false) {{
-      if (!file.files.length && includeImage) return;
-      const id = ++requestId;
-      status.className = '';
-      status.textContent = 'Colorizing...';
-      render.disabled = true;
-      try {{
-        const response = await fetch('/colorize', {{ method: 'POST', body: formData(includeImage) }});
-        if (!response.ok) throw new Error(await response.text());
-        if (id !== requestId) return;
-        const blob = await response.blob();
-        if (outputUrl) URL.revokeObjectURL(outputUrl);
-        outputUrl = URL.createObjectURL(blob);
-        outputPreview.src = outputUrl;
-        outputFigure.hidden = false;
-        download.href = outputUrl;
-        download.download = file.files[0]?.name?.replace(/\.[^.]*$/, '_colorized.png') || 'colorized.png';
-        download.hidden = false;
-        status.textContent = 'Done.';
-      }} catch (error) {{
-        if (id !== requestId) return;
-        status.className = 'error';
-        status.textContent = error.message || String(error);
-      }} finally {{
-        if (id === requestId) render.disabled = false;
-      }}
-    }}
-
-    function schedulePreview() {{
-      syncValues();
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => renderPreview(false), 120);
-    }}
-
-    file.addEventListener('change', () => {{
-      if (inputUrl) URL.revokeObjectURL(inputUrl);
-      if (!file.files.length) return;
-      inputUrl = URL.createObjectURL(file.files[0]);
-      inputPreview.src = inputUrl;
-      inputFigure.hidden = false;
-      renderPreview(true);
-    }});
-
-    form.addEventListener('submit', (event) => {{
-      event.preventDefault();
-      renderPreview(true);
-    }});
-
-    for (const id of controls) document.querySelector('#' + id).addEventListener('input', schedulePreview);
-    interpolate.addEventListener('change', schedulePreview);
-    schemeText.addEventListener('input', schedulePreview);
-    schemeName.addEventListener('input', syncValues);
-
-    saveConfig.addEventListener('click', async () => {{
-      status.className = '';
-      status.textContent = 'Saving config...';
-      try {{
-        const response = await fetch('/save-config', {{ method: 'POST', body: formData(false) }});
-        if (!response.ok) throw new Error(await response.text());
-        status.textContent = await response.text();
-      }} catch (error) {{
-        status.className = 'error';
-        status.textContent = error.message || String(error);
-      }}
-    }});
-
-    syncValues();
-  </script>
-</body>
-</html>
-"#,
-        blend_factor = defaults.blend_factor,
-        dither_amount = defaults.dither_amount,
-        spatial_averaging_radius = defaults.spatial_averaging_radius,
-        interpolation_threshold = defaults.interpolation_threshold,
-        interpolate_checked = if defaults.interpolate_colors {
-            "checked"
-        } else {
-            ""
-        },
-        colorscheme = escape_html(&defaults.colorscheme),
-        colorscheme_text = escape_html(&defaults.colorscheme_text),
-    )
+    include_str!("server_index.html")
+        .replace("__BLEND__", &defaults.blend_factor.to_string())
+        .replace("__DITHER__", &defaults.dither_amount.to_string())
+        .replace("__RADIUS__", &defaults.spatial_averaging_radius.to_string())
+        .replace(
+            "__THRESHOLD__",
+            &defaults.interpolation_threshold.to_string(),
+        )
+        .replace(
+            "__INTERPOLATE_CHECKED__",
+            if defaults.interpolate_colors {
+                "checked"
+            } else {
+                ""
+            },
+        )
+        .replace("__COLORSCHEME__", &escape_html(&defaults.colorscheme))
+        .replace(
+            "__COLORSCHEME_TEXT__",
+            &escape_html(&defaults.colorscheme_text),
+        )
 }
 
 fn escape_html(input: &str) -> String {
@@ -653,4 +804,37 @@ fn escape_html(input: &str) -> String {
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_base16_yaml_into_ordered_plain_colors() {
+        let colors = parse_base16_yaml_hex(
+            r##"
+scheme: "Example"
+base01: "111111"
+base00: "000000"
+base0A: "aaaaaa"
+"##,
+        )
+        .unwrap();
+
+        assert_eq!(colors, ["#000000", "#111111", "#aaaaaa"]);
+    }
+
+    #[test]
+    fn normalizes_plain_colorscheme_lines() {
+        let colors = parse_colorscheme_hex(
+            r##"
+7e9cd8 // blue
+#98bb6c
+"##,
+        )
+        .unwrap();
+
+        assert_eq!(colors, ["#7e9cd8", "#98bb6c"]);
+    }
 }

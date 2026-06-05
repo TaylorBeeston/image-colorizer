@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Colorizer Workstation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111118;
+      --panel: #1f1f28;
+      --panel-2: #181820;
+      --line: #363646;
+      --text: #dcd7ba;
+      --muted: #c8c093;
+      --quiet: #938aa9;
+      --blue: #7e9cd8;
+      --green: #98bb6c;
+      --red: #e46876;
+      --orange: #ffa066;
+      --button-text: #111118;
+      --shadow: 0 28px 90px #0009;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--blue) 34%, transparent), transparent 34rem),
+        radial-gradient(circle at 100% 10%, color-mix(in srgb, var(--orange) 28%, transparent), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    button, input, textarea { font: inherit; }
+
+    button, a.download {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.68rem 0.92rem;
+      background: var(--blue);
+      color: var(--button-text);
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 8px 24px #0005;
+    }
+
+    button.secondary { background: var(--green); }
+    button.ghost { background: color-mix(in srgb, var(--panel-2) 82%, var(--text) 18%); color: var(--text); }
+    button.danger { background: var(--red); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+
+    .app {
+      width: min(1720px, calc(100vw - 28px));
+      margin: 14px auto;
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: color-mix(in srgb, var(--panel) 94%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    aside.panel {
+      position: sticky;
+      top: 14px;
+      height: calc(100vh - 28px);
+      overflow: hidden;
+      padding: 16px;
+    }
+
+    main.panel {
+      min-height: calc(100vh - 28px);
+      padding: 22px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 16px;
+    }
+
+    h1 { margin: 0 0 0.45rem; font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -0.06em; }
+    h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text); }
+    p { color: var(--muted); line-height: 1.4; }
+
+    form { display: grid; gap: 9px; }
+    fieldset { min-width: 0; display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 18px; padding: 10px; }
+    legend { padding: 0 0.35rem; color: var(--quiet); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.14em; }
+
+    label.control { display: grid; min-width: 0; gap: 4px; }
+    .control-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .control-label { display: flex; gap: 0.35rem; align-items: center; min-width: 0; }
+    .control-title { font-weight: 800; }
+    .value { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 800; }
+    .hint { margin: 0; color: var(--quiet); font-size: 0.75rem; line-height: 1.25; }
+    code { color: var(--text); }
+
+    .help-button {
+      width: 1.28rem;
+      height: 1.28rem;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      background: color-mix(in srgb, var(--blue) 24%, var(--panel-2));
+      color: var(--text);
+      box-shadow: none;
+      font-size: 0.78rem;
+      line-height: 1;
+    }
+
+    input[type=file], input[type=text], textarea {
+      width: 100%;
+      min-width: 0;
+      color: var(--text);
+      background: var(--panel-2);
+      border: 1px solid color-mix(in srgb, var(--line) 70%, var(--text) 30%);
+      border-radius: 14px;
+      padding: 0.55rem;
+    }
+
+    input[type=file] { border-style: dashed; }
+    textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; line-height: 1.45; }
+    input[type=range] { width: 100%; accent-color: var(--blue); margin: 0; }
+
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+    .toggle { display: flex; gap: 0.5rem; align-items: center; color: var(--muted); }
+
+    .row > input { flex: 1 1 9rem; }
+
+    .scheme-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .scheme-summary strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 1.05rem;
+    }
+
+    .scheme-preview {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+      gap: 6px;
+      max-height: 58px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 2px;
+    }
+
+    .swatch {
+      aspect-ratio: 1;
+      min-width: 0;
+      border: 1px solid #ffffff33;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 2px #0005;
+    }
+
+    details {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 8px;
+      background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .scheme-browser {
+      align-content: start;
+      display: grid;
+      grid-auto-rows: max-content;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 7px;
+      height: min(44vh, 520px);
+      min-height: 320px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 8px 2px 0 0;
+    }
+
+    .scheme-card {
+      display: grid;
+      grid-template-rows: auto auto auto;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      min-height: 72px;
+      gap: 7px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel-2);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .scheme-card strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: capitalize;
+    }
+
+    .scheme-strip {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
+      width: 100%;
+      min-width: 0;
+      height: 15px;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid #ffffff22;
+    }
+
+    .scheme-strip span { min-width: 0; }
+
+    .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .status { margin: 0; min-height: 1.5em; color: var(--muted); }
+    .status.error { color: var(--red); white-space: pre-wrap; }
+
+    .compare {
+      position: relative;
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #0d0c0c 25%, transparent 25%),
+        linear-gradient(-45deg, #0d0c0c 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #0d0c0c 75%),
+        linear-gradient(-45deg, transparent 75%, #0d0c0c 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0;
+      display: grid;
+      place-items: center;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      cursor: default;
+    }
+
+    .compare.empty { cursor: default; }
+
+    .compare.empty::before {
+      content: "Drop in an image to begin";
+      color: var(--quiet);
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .compare img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none;
+    }
+
+    .image-layer {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+    }
+
+    .after-layer { clip-path: inset(0 0 0 50%); }
+
+    .divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 3px;
+      transform: translateX(-50%);
+      background: var(--blue);
+      box-shadow: 0 0 0 1px var(--bg), 0 0 28px var(--blue);
+      cursor: ew-resize;
+      pointer-events: none;
+    }
+
+    .divider::after {
+      content: "↔";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--blue);
+      color: var(--button-text);
+      font-weight: 900;
+    }
+
+    body.dragging, body.dragging * {
+      cursor: ew-resize !important;
+      user-select: none !important;
+    }
+
+    .badge {
+      position: absolute;
+      top: 14px;
+      padding: 0.38rem 0.65rem;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--bg) 84%, transparent);
+      color: var(--text);
+      font-weight: 800;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .badge.before { left: 14px; }
+    .badge.after { right: 14px; }
+
+    .compare.hide-before .badge.before,
+    .compare.hide-after .badge.after {
+      opacity: 0;
+    }
+
+    .loupe {
+      position: fixed;
+      width: 190px;
+      height: 190px;
+      border: 2px solid var(--blue);
+      border-radius: 999px;
+      box-shadow: 0 20px 50px #000a, inset 0 0 0 1px #fff4;
+      background-repeat: no-repeat;
+      background-color: var(--bg);
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+    }
+
+    .loupe.on { display: block; }
+    .small { font-size: 0.85rem; color: var(--quiet); }
+
+    dialog {
+      width: min(760px, calc(100vw - 32px));
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 0;
+    }
+
+    dialog.scheme-modal { width: min(1120px, calc(100vw - 32px)); }
+    dialog::backdrop { background: #000a; backdrop-filter: blur(8px); }
+
+    .modal-body {
+      display: grid;
+      gap: 14px;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 20px;
+    }
+
+    .modal-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .modal-head h2 { margin: 0; font-size: 1.35rem; }
+    .modal-close { width: 2rem; height: 2rem; padding: 0; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .scheme-modal-grid { display: grid; grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr); gap: 14px; min-width: 0; }
+    .scheme-tools { display: grid; gap: 10px; min-width: 0; }
+    .scheme-editor { display: grid; gap: 10px; min-width: 0; }
+    .scheme-modal .swatches { max-height: 150px; grid-template-columns: repeat(auto-fill, minmax(24px, 1fr)); }
+    .scheme-modal textarea { min-height: 220px; }
+    .example-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .example { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-2); }
+    .example canvas { width: 100%; height: 92px; border-radius: 12px; background: var(--bg); }
+    .example strong { font-size: 0.86rem; }
+
+    @media (max-width: 980px) {
+      body { overflow-y: auto; }
+      .app { width: min(100% - 16px, 760px); grid-template-columns: 1fr; margin: 8px auto; }
+      aside.panel { position: static; height: auto; overflow: visible; }
+      main.panel { min-height: 72vh; padding: 14px; }
+      .compare { min-height: 420px; }
+      .scheme-modal-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .app { width: 100%; margin: 0; gap: 8px; }
+      .panel { border-radius: 0; }
+      aside.panel { padding: 12px; }
+      main.panel { min-height: 68vh; }
+      .scheme-browser { grid-template-columns: 1fr; }
+      .example-grid { grid-template-columns: 1fr; }
+      .toolbar { align-items: stretch; }
+      .toolbar .row, .toolbar a, .toolbar button { width: 100%; justify-content: center; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <h1>Image Colorizer</h1>
+
+      <form id="form">
+        <fieldset>
+          <legend>Source</legend>
+          <input id="file" name="image" type="file" accept="image/*">
+          <p class="hint">Processed locally by this app.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Parameters</legend>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Blend</span><button class="help-button" type="button" data-help="blend" aria-label="Explain blend">?</button></span>
+              <span class="value" id="blendValue"></span>
+            </span>
+            <input id="blend" name="blend_factor" type="range" min="0" max="1" step="0.01" value="__BLEND__">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Dither</span><button class="help-button" type="button" data-help="dither" aria-label="Explain dither">?</button></span>
+              <span class="value" id="ditherValue"></span>
+            </span>
+            <input id="dither" name="dither_amount" type="range" min="0" max="1" step="0.01" value="__DITHER__">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Spatial radius</span><button class="help-button" type="button" data-help="radius" aria-label="Explain spatial radius">?</button></span>
+              <span class="value" id="radiusValue"></span>
+            </span>
+            <input id="radius" name="spatial_averaging_radius" type="range" min="0" max="100" step="1" value="__RADIUS__">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Palette detail</span><button class="help-button" type="button" data-help="threshold" aria-label="Explain palette detail">?</button></span>
+              <span class="value" id="thresholdValue"></span>
+            </span>
+            <input id="threshold" name="interpolation_threshold" type="range" min="0.1" max="100" step="0.1" value="__THRESHOLD__">
+          </label>
+
+          <label class="toggle"><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" __INTERPOLATE_CHECKED__> Smooth palette ramps</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Colorscheme</legend>
+          <div class="scheme-summary">
+            <div class="scheme-preview">
+              <span class="hint">Current</span>
+              <strong id="schemeDisplay">__COLORSCHEME__</strong>
+              <div id="activeSchemeStrip" class="scheme-strip"></div>
+            </div>
+            <button id="openScheme" class="ghost" type="button">Choose</button>
+          </div>
+        </fieldset>
+
+        <div class="row">
+          <button id="saveConfig" class="secondary" type="button">Save config</button>
+        </div>
+      </form>
+    </aside>
+
+    <main class="panel">
+      <div class="toolbar">
+        <p id="status" class="status">Ready.</p>
+        <div class="row">
+          <button id="toggleLoupe" class="ghost" type="button">Loupe: off</button>
+          <a id="download" class="download" hidden>Download result</a>
+        </div>
+      </div>
+
+      <section id="compare" class="compare empty">
+        <div class="image-layer before-layer"><img id="inputPreview" draggable="false" alt="Original image preview"></div>
+        <div class="image-layer after-layer" id="afterLayer"><img id="outputPreview" draggable="false" alt="Colorized image preview"></div>
+        <span class="badge before">Original</span>
+        <span class="badge after">Colorized</span>
+        <div id="divider" class="divider" role="slider" aria-label="Comparison split" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></div>
+      </section>
+
+      <p class="small">Drag through the preview to compare before and after. Turn on the loupe to inspect pixels.</p>
+    </main>
+  </div>
+
+  <div id="loupe" class="loupe"></div>
+
+  <dialog id="helpModal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 id="helpTitle"></h2>
+        <button id="closeHelp" class="modal-close ghost" type="button" aria-label="Close help">×</button>
+      </div>
+      <p id="helpCopy"></p>
+      <div id="helpExamples" class="example-grid"></div>
+    </div>
+  </dialog>
+
+  <dialog id="schemeModal" class="scheme-modal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2>Colorscheme</h2>
+        <button id="closeScheme" class="modal-close ghost" type="button" aria-label="Close colorscheme picker">×</button>
+      </div>
+
+      <div class="scheme-modal-grid">
+        <section class="scheme-tools">
+          <label class="control">
+            <span class="control-title">Search</span>
+            <input id="schemeSearch" type="text" placeholder="Catppuccin, Gruvbox, Tokyo Night…" autocomplete="off">
+          </label>
+
+          <div class="scheme-browser" id="schemeBrowser">
+            <p class="hint">Loading colorschemes…</p>
+          </div>
+        </section>
+
+        <section class="scheme-editor">
+          <label class="control">
+            <span class="control-title">Name</span>
+            <input id="schemeName" name="colorscheme_name" type="text" value="__COLORSCHEME__">
+          </label>
+
+          <div class="swatches" id="swatches"></div>
+
+          <div class="row">
+            <input id="newColor" type="text" placeholder="#7e9cd8" aria-label="New color">
+            <button id="addColor" class="ghost" type="button">Add color</button>
+            <button id="sortColors" class="ghost" type="button">Sort</button>
+          </div>
+
+          <label class="control">
+            <span class="control-title">Colors</span>
+            <textarea id="schemeText" name="colorscheme_text" spellcheck="false">__COLORSCHEME_TEXT__</textarea>
+            <p class="hint">One hex color per line. Comments with <code>//</code> are ignored. Click a swatch to remove it.</p>
+          </label>
+
+          <div class="modal-actions">
+            <button id="saveColorscheme" class="secondary" type="button">Save colorscheme</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    const form = document.querySelector('#form');
+    const file = document.querySelector('#file');
+    const compare = document.querySelector('#compare');
+    const afterLayer = document.querySelector('#afterLayer');
+    const schemeBrowser = document.querySelector('#schemeBrowser');
+    const schemeSearch = document.querySelector('#schemeSearch');
+    const schemeDisplay = document.querySelector('#schemeDisplay');
+    const activeSchemeStrip = document.querySelector('#activeSchemeStrip');
+    const openScheme = document.querySelector('#openScheme');
+    const closeScheme = document.querySelector('#closeScheme');
+    const schemeModal = document.querySelector('#schemeModal');
+    const divider = document.querySelector('#divider');
+    const loupe = document.querySelector('#loupe');
+    const toggleLoupe = document.querySelector('#toggleLoupe');
+    const status = document.querySelector('#status');
+    const inputPreview = document.querySelector('#inputPreview');
+    const outputPreview = document.querySelector('#outputPreview');
+    const download = document.querySelector('#download');
+    const saveConfig = document.querySelector('#saveConfig');
+    const saveColorscheme = document.querySelector('#saveColorscheme');
+    const schemeText = document.querySelector('#schemeText');
+    const schemeName = document.querySelector('#schemeName');
+    const swatches = document.querySelector('#swatches');
+    const newColor = document.querySelector('#newColor');
+    const addColor = document.querySelector('#addColor');
+    const sortColors = document.querySelector('#sortColors');
+    const interpolate = document.querySelector('#interpolate');
+    const helpModal = document.querySelector('#helpModal');
+    const helpTitle = document.querySelector('#helpTitle');
+    const helpCopy = document.querySelector('#helpCopy');
+    const helpExamples = document.querySelector('#helpExamples');
+    const closeHelp = document.querySelector('#closeHelp');
+    const sliders = {
+      blend: document.querySelector('#blend'),
+      dither: document.querySelector('#dither'),
+      radius: document.querySelector('#radius'),
+      threshold: document.querySelector('#threshold'),
+    };
+    const values = {
+      blend: document.querySelector('#blendValue'),
+      dither: document.querySelector('#ditherValue'),
+      radius: document.querySelector('#radiusValue'),
+      threshold: document.querySelector('#thresholdValue'),
+    };
+    const help = {
+      blend: {
+        title: 'Blend',
+        copy: 'Blend is a straight mix between the original image and the generated colorized image. At 0 you get the source unchanged. At 1 you get the full palette result. The values in between are just crossfades.',
+        labels: ['0.00 — original', '0.25', '0.50', '0.75', '1.00 — generated'],
+        values: [0, 0.25, 0.5, 0.75, 1],
+      },
+      dither: {
+        title: 'Dither',
+        copy: 'Dither adds tiny, structured variation before palette matching. It can break up flat bands in gradients, but too much looks noisy.',
+        labels: ['0.00 — clean bands', '0.18 — softened bands', '0.65 — visible grain'],
+        values: [0, 0.18, 0.65],
+      },
+      radius: {
+        title: 'Spatial radius',
+        copy: 'Spatial radius averages nearby color decisions before restoring luminance. Small radii keep hard color boundaries. Large radii make smoother, more painterly chroma.',
+        labels: ['0 — sharp', '10 — smooth', '45 — washed together'],
+        values: [0, 10, 45],
+      },
+      threshold: {
+        title: 'Palette detail',
+        copy: 'Palette detail controls how many in-between colors are generated when Smooth palette ramps is on. Lower values add more intermediate colors for smoother ramps. Higher values stay closer to the original palette stops.',
+        labels: ['0.8 — many steps', '6 — moderate', '35 — sparse'],
+        values: [0.8, 6, 35],
+      },
+    };
+    let currentSplit = 50;
+    let inputUrl;
+    let outputUrl;
+    let requestId = 0;
+    let debounceTimer;
+    let loupeEnabled = false;
+    let dragging = false;
+    let allSchemes = [];
+
+    function syncValues() {
+      values.blend.textContent = sliders.blend.value;
+      values.dither.textContent = sliders.dither.value;
+      values.radius.textContent = sliders.radius.value;
+      values.threshold.textContent = sliders.threshold.value;
+      schemeDisplay.textContent = schemeName.value || 'Custom';
+      renderSwatches();
+      applyTheme(colors());
+    }
+
+    function colors() {
+      return schemeText.value.split('\n')
+        .map(line => line.split('//')[0].trim())
+        .map(line => line.startsWith('#') ? line : `#${line}`)
+        .filter(line => /^#[0-9a-fA-F]{6}$/.test(line) || /^#[0-9a-fA-F]{3}$/.test(line));
+    }
+
+    function expandHex(hex) {
+      const raw = hex.slice(1);
+      return raw.length === 3 ? raw.split('').map(char => char + char).join('') : raw;
+    }
+
+    function rgb(hex) {
+      const raw = expandHex(hex);
+      return [parseInt(raw.slice(0, 2), 16), parseInt(raw.slice(2, 4), 16), parseInt(raw.slice(4, 6), 16)];
+    }
+
+    function luminance(hex) {
+      const [r, g, b] = rgb(hex).map(value => {
+        const channel = value / 255;
+        return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    function applyTheme(palette) {
+      if (!palette.length) return;
+      const sorted = [...palette].sort((a, b) => luminance(a) - luminance(b));
+      const root = document.documentElement.style;
+      const dark = sorted[0];
+      const panel = sorted[Math.min(1, sorted.length - 1)];
+      const light = sorted[sorted.length - 1];
+      const muted = sorted[Math.max(0, sorted.length - 2)];
+      const accents = sorted.slice(2, -2).length ? sorted.slice(2, -2) : sorted;
+      const accent = accents[Math.floor(accents.length * 0.62)] || light;
+      const green = accents[Math.floor(accents.length * 0.42)] || accent;
+      const orange = accents[Math.floor(accents.length * 0.78)] || accent;
+      const red = accents[Math.floor(accents.length * 0.9)] || accent;
+
+      root.setProperty('--bg', dark);
+      root.setProperty('--panel', panel);
+      root.setProperty('--panel-2', sorted[Math.min(2, sorted.length - 1)] || panel);
+      root.setProperty('--text', light);
+      root.setProperty('--muted', muted);
+      root.setProperty('--quiet', sorted[Math.floor(sorted.length * 0.68)] || muted);
+      root.setProperty('--blue', accent);
+      root.setProperty('--green', green);
+      root.setProperty('--orange', orange);
+      root.setProperty('--red', red);
+      root.setProperty('--line', sorted[Math.floor(sorted.length * 0.32)] || panel);
+      root.setProperty('--button-text', luminance(accent) > 0.42 ? dark : light);
+    }
+
+    function renderSwatches() {
+      const palette = colors();
+      swatches.innerHTML = '';
+      activeSchemeStrip.innerHTML = schemeStripSpans(palette);
+
+      for (const color of palette) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'swatch';
+        button.style.background = color;
+        button.title = `${color} — click to remove`;
+        button.addEventListener('click', () => {
+          schemeText.value = schemeText.value.split('\n').filter(line => line.trim() !== color && line.trim() !== color.slice(1)).join('\n');
+          schedulePreview();
+        });
+        swatches.append(button);
+      }
+    }
+
+    function schemeStripSpans(colors) {
+      return colors.slice(0, 16).map(color => `<span style="background:${color}"></span>`).join('');
+    }
+
+    function renderSchemeStrip(colors) {
+      return `<div class="scheme-strip">${schemeStripSpans(colors)}</div>`;
+    }
+
+    async function loadSchemeBrowser() {
+      try {
+        const response = await fetch('/colorschemes');
+        if (!response.ok) throw new Error(await response.text());
+        allSchemes = await response.json();
+        renderSchemeBrowser();
+      } catch (error) {
+        schemeBrowser.innerHTML = `<p class="hint">Could not load colorscheme browser: ${error.message || error}</p>`;
+      }
+    }
+
+    function renderSchemeBrowser() {
+      const query = schemeSearch.value.trim().toLowerCase();
+      const schemes = query ? allSchemes.filter(scheme => scheme.name.toLowerCase().includes(query)) : allSchemes;
+      schemeBrowser.innerHTML = '';
+
+      if (!schemes.length) {
+        schemeBrowser.innerHTML = '<p class="hint">No colorschemes match that search.</p>';
+        return;
+      }
+
+      for (const scheme of schemes) {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'scheme-card';
+        card.innerHTML = `<strong>${scheme.name}</strong>${renderSchemeStrip(scheme.colors)}<span class="hint">${scheme.source === 'local' ? 'Saved locally' : 'Tinted Base16'}</span>`;
+        card.addEventListener('click', () => loadScheme(scheme.name));
+        schemeBrowser.append(card);
+      }
+    }
+
+    async function loadScheme(name) {
+      status.className = 'status';
+      status.textContent = `Loading ${name}…`;
+      const response = await fetch(`/colorschemes/${encodeURIComponent(name)}`);
+      if (!response.ok) {
+        status.className = 'status error';
+        status.textContent = await response.text();
+        return;
+      }
+
+      const scheme = await response.json();
+      schemeName.value = scheme.name;
+      schemeText.value = scheme.text;
+      syncValues();
+      schedulePreview();
+    }
+
+    function formData(includeImage) {
+      const data = new FormData();
+      if (includeImage && file.files[0]) data.append('image', file.files[0]);
+      data.append('blend_factor', sliders.blend.value);
+      data.append('dither_amount', sliders.dither.value);
+      data.append('spatial_averaging_radius', sliders.radius.value);
+      data.append('interpolation_threshold', sliders.threshold.value);
+      data.append('interpolate_colors', interpolate.checked ? 'true' : 'false');
+      data.append('colorscheme_name', schemeName.value);
+      data.append('colorscheme_text', schemeText.value);
+      return data;
+    }
+
+    async function renderPreview(includeImage = false) {
+      if (!file.files.length && includeImage) return;
+      const id = ++requestId;
+      status.className = 'status';
+      status.textContent = 'Rendering…';
+      try {
+        const response = await fetch('/colorize', { method: 'POST', body: formData(includeImage) });
+        if (!response.ok) throw new Error(await response.text());
+        if (id !== requestId) return;
+        const blob = await response.blob();
+        if (outputUrl) URL.revokeObjectURL(outputUrl);
+        outputUrl = URL.createObjectURL(blob);
+        outputPreview.src = outputUrl;
+        download.href = outputUrl;
+        download.download = file.files[0]?.name?.replace(/\.[^.]*$/, '_colorized.png') || 'colorized.png';
+        download.hidden = false;
+        compare.classList.remove('empty');
+        status.textContent = 'Rendered.';
+      } catch (error) {
+        if (id !== requestId) return;
+        status.className = 'status error';
+        status.textContent = error.message || String(error);
+      }
+    }
+
+    function schedulePreview() {
+      syncValues();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => renderPreview(false), 120);
+    }
+
+    function setSplit(percent) {
+      const clamped = Math.max(0, Math.min(100, percent));
+      currentSplit = clamped;
+      afterLayer.style.clipPath = `inset(0 0 0 ${clamped}%)`;
+      divider.style.left = `${clamped}%`;
+      divider.setAttribute('aria-valuenow', String(Math.round(clamped)));
+      compare.classList.toggle('hide-before', clamped <= 2);
+      compare.classList.toggle('hide-after', clamped >= 98);
+    }
+
+    function moveSplit(event) {
+      const rect = compare.getBoundingClientRect();
+      setSplit(((event.clientX - rect.left) / rect.width) * 100);
+      window.getSelection()?.removeAllRanges();
+    }
+
+    function nearDivider(event) {
+      const rect = compare.getBoundingClientRect();
+      const dividerX = rect.left + rect.width * currentSplit / 100;
+      const radius = event.pointerType === 'touch' ? 36 : 28;
+      return Math.abs(event.clientX - dividerX) <= radius;
+    }
+
+    function endDrag(event) {
+      if (dragging && compare.hasPointerCapture(event.pointerId)) compare.releasePointerCapture(event.pointerId);
+      dragging = false;
+      document.body.classList.remove('dragging');
+    }
+
+    compare.addEventListener('pointerdown', event => {
+      if (compare.classList.contains('empty')) return;
+      event.preventDefault();
+
+      if (nearDivider(event)) {
+        dragging = true;
+        compare.setPointerCapture(event.pointerId);
+        document.body.classList.add('dragging');
+        moveSplit(event);
+      }
+
+      if (loupeEnabled) {
+        loupe.classList.add('on');
+        updateLoupe(event);
+      }
+    });
+
+    compare.addEventListener('pointermove', event => {
+      if (dragging) moveSplit(event);
+      updateLoupe(event);
+    });
+
+    compare.addEventListener('pointerup', event => {
+      endDrag(event);
+      if (event.pointerType === 'touch') loupe.classList.remove('on');
+    });
+
+    compare.addEventListener('pointercancel', event => {
+      endDrag(event);
+      loupe.classList.remove('on');
+    });
+
+    function updateLoupe(event) {
+      if (!loupeEnabled || compare.classList.contains('empty') || !outputUrl) return;
+      const rect = compare.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const sourceUrl = x / rect.width * 100 < currentSplit ? inputUrl : outputUrl;
+      if (!sourceUrl) return;
+
+      const size = Math.max(loupe.offsetWidth, 190);
+      const margin = 8;
+      let left = event.clientX + 18;
+      let top = event.clientY + 18;
+
+      if (left + size + margin > window.innerWidth) left = event.clientX - size - 18;
+      if (top + size + margin > window.innerHeight) top = event.clientY - size - 18;
+
+      left = Math.max(margin, Math.min(window.innerWidth - size - margin, left));
+      top = Math.max(margin, Math.min(window.innerHeight - size - margin, top));
+
+      loupe.style.left = `${left}px`;
+      loupe.style.top = `${top}px`;
+      loupe.style.backgroundImage = `url(${sourceUrl})`;
+      loupe.style.backgroundSize = `${rect.width * 5}px ${rect.height * 5}px`;
+      loupe.style.backgroundPosition = `${-(x * 5 - 95)}px ${-(y * 5 - 95)}px`;
+    }
+
+    compare.addEventListener('pointerleave', () => loupe.classList.remove('on'));
+    compare.addEventListener('pointerenter', () => { if (loupeEnabled) loupe.classList.add('on'); });
+
+    toggleLoupe.addEventListener('click', () => {
+      loupeEnabled = !loupeEnabled;
+      toggleLoupe.textContent = `Loupe: ${loupeEnabled ? 'on' : 'off'}`;
+      loupe.classList.toggle('on', loupeEnabled);
+    });
+
+    file.addEventListener('change', () => {
+      if (inputUrl) URL.revokeObjectURL(inputUrl);
+      if (!file.files.length) return;
+      inputUrl = URL.createObjectURL(file.files[0]);
+      inputPreview.src = inputUrl;
+      compare.classList.remove('empty');
+      renderPreview(true);
+    });
+
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      renderPreview(true);
+    });
+
+    for (const slider of Object.values(sliders)) slider.addEventListener('input', schedulePreview);
+    interpolate.addEventListener('change', schedulePreview);
+    schemeText.addEventListener('input', schedulePreview);
+    schemeName.addEventListener('input', syncValues);
+    openScheme.addEventListener('click', () => schemeModal.showModal());
+    closeScheme.addEventListener('click', () => schemeModal.close());
+    schemeModal.addEventListener('click', event => { if (event.target === schemeModal) schemeModal.close(); });
+    schemeSearch.addEventListener('input', renderSchemeBrowser);
+
+    addColor.addEventListener('click', () => {
+      const color = newColor.value.trim();
+      if (!/^#?[0-9a-fA-F]{6}$/.test(color) && !/^#?[0-9a-fA-F]{3}$/.test(color)) {
+        status.className = 'status error';
+        status.textContent = 'Use a hex color like #7e9cd8.';
+        return;
+      }
+      schemeText.value = `${schemeText.value.trim()}\n${color.startsWith('#') ? color : `#${color}`}`.trim();
+      newColor.value = '';
+      schedulePreview();
+    });
+
+    sortColors.addEventListener('click', () => {
+      schemeText.value = colors().sort((a, b) => luminance(a) - luminance(b)).join('\n');
+      schedulePreview();
+    });
+
+    async function save(endpoint, message) {
+      status.className = 'status';
+      status.textContent = message;
+      try {
+        const response = await fetch(endpoint, { method: 'POST', body: formData(false) });
+        if (!response.ok) throw new Error(await response.text());
+        status.textContent = await response.text();
+      } catch (error) {
+        status.className = 'status error';
+        status.textContent = error.message || String(error);
+      }
+    }
+
+    saveConfig.addEventListener('click', () => save('/save-config', 'Saving config…'));
+    saveColorscheme.addEventListener('click', () => save('/save-colorscheme', 'Saving colorscheme…'));
+
+    function openHelp(key) {
+      const item = help[key];
+      if (!item) return;
+      helpTitle.textContent = item.title;
+      helpCopy.textContent = item.copy;
+      helpExamples.innerHTML = '';
+
+      for (let index = 0; index < item.values.length; index++) {
+        const wrap = document.createElement('div');
+        const canvas = document.createElement('canvas');
+        const label = document.createElement('strong');
+        wrap.className = 'example';
+        canvas.width = 220;
+        canvas.height = 92;
+        label.textContent = item.labels[index];
+        wrap.append(canvas, label);
+        helpExamples.append(wrap);
+        drawExample(canvas, key, item.values[index]);
+      }
+
+      helpModal.showModal();
+    }
+
+    function drawExample(canvas, key, value) {
+      const context = canvas.getContext('2d');
+      const palette = colors().slice(0, 8);
+      const width = canvas.width;
+      const height = canvas.height;
+      const gradient = context.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, '#0f172a');
+      gradient.addColorStop(0.42, '#22c55e');
+      gradient.addColorStop(0.68, '#c084fc');
+      gradient.addColorStop(1, '#fde68a');
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, width, height);
+
+      const image = context.getImageData(0, 0, width, height);
+      const data = image.data;
+      const swatch = palette.map(rgb);
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const offset = (y * width + x) * 4;
+          const luma = (data[offset] + data[offset + 1] + data[offset + 2]) / 765;
+          const noise = ((x * 17 + y * 31) % 23) / 22 - 0.5;
+          let t = Math.max(0, Math.min(1, luma + (key === 'dither' ? noise * value * 0.26 : 0)));
+          if (key === 'radius') t = Math.round(t * (22 - Math.min(value, 45) / 2)) / (22 - Math.min(value, 45) / 2);
+          if (key === 'threshold') t = Math.round(t * Math.max(2, value / 2)) / Math.max(2, value / 2);
+          const color = swatch.length ? swatch[Math.min(swatch.length - 1, Math.floor(t * swatch.length))] : [data[offset], data[offset + 1], data[offset + 2]];
+          const blend = key === 'blend' ? value : 0.88;
+          data[offset] = data[offset] * (1 - blend) + color[0] * blend;
+          data[offset + 1] = data[offset + 1] * (1 - blend) + color[1] * blend;
+          data[offset + 2] = data[offset + 2] * (1 - blend) + color[2] * blend;
+        }
+      }
+
+      context.putImageData(image, 0, 0);
+
+      if (key === 'radius' && value > 0) {
+        context.globalAlpha = Math.min(0.36, value / 100);
+        context.filter = `blur(${Math.min(8, value / 7)}px)`;
+        context.drawImage(canvas, 0, 0);
+        context.filter = 'none';
+        context.globalAlpha = 1;
+      }
+    }
+
+    for (const button of document.querySelectorAll('[data-help]')) button.addEventListener('click', () => openHelp(button.dataset.help));
+    closeHelp.addEventListener('click', () => helpModal.close());
+    helpModal.addEventListener('click', event => { if (event.target === helpModal) helpModal.close(); });
+
+    syncValues();
+    loadSchemeBrowser();
+    setSplit(50);
+  </script>
+</body>
+</html>
