@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "image-colorizer-core"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "anyhow",
  "bytemuck",

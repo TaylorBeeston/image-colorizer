@@ -22,7 +22,7 @@ config.workspace = true
 dirs.workspace = true
 futures.workspace = true
 image.workspace = true
-image-colorizer-core = { path = "../image-colorizer-core", version = "1.1.4" }
+image-colorizer-core = { path = "../image-colorizer-core", version = "1.1.5" }
 indicatif.workspace = true
 palette.workspace = true
 reqwest.workspace = true
