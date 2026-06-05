@@ -1041,6 +1041,7 @@ dependencies = [
 name = "image-colorizer-web"
 version = "1.1.7"
 dependencies = [
+ "js-sys",
  "wasm-bindgen",
 ]
 

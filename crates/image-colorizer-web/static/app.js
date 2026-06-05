@@ -38,6 +38,11 @@ const elements = {
   closeHelp: document.querySelector('#closeHelp'),
   fallbackModal: document.querySelector('#fallbackModal'),
   closeFallback: document.querySelector('#closeFallback'),
+  cpuProgress: document.querySelector('#cpuProgress'),
+  cpuProgressBar: document.querySelector('#cpuProgressBar'),
+  openCpuExplain: document.querySelector('#openCpuExplain'),
+  cpuExplainModal: document.querySelector('#cpuExplainModal'),
+  closeCpuExplain: document.querySelector('#closeCpuExplain'),
 };
 const sliders = {
   blend: document.querySelector('#blend'),
@@ -117,6 +122,8 @@ async function createColorizer() {
     return await WebGpuColorizer.create();
   } catch {
     const colorizer = await CpuColorizer.create();
+    colorizer.onProgress = updateCpuProgress;
+
 
     showCpuFallbackModal();
 
@@ -161,7 +168,13 @@ function bindEvents() {
   elements.closeHelp.addEventListener('click', () => elements.helpModal.close());
   elements.helpModal.addEventListener('click', event => { if (event.target === elements.helpModal) elements.helpModal.close(); });
   elements.closeFallback.addEventListener('click', () => elements.fallbackModal.close());
+  elements.openCpuExplain.addEventListener('click', () => {
+    elements.fallbackModal.close();
+    elements.cpuExplainModal.showModal();
+  });
+  elements.closeCpuExplain.addEventListener('click', () => elements.cpuExplainModal.close());
   elements.fallbackModal.addEventListener('click', event => { if (event.target === elements.fallbackModal) elements.fallbackModal.close(); });
+  elements.cpuExplainModal.addEventListener('click', event => { if (event.target === elements.cpuExplainModal) elements.cpuExplainModal.close(); });
 
   for (const button of document.querySelectorAll('[data-help]')) button.addEventListener('click', () => openHelp(button.dataset.help));
 }
@@ -209,14 +222,18 @@ async function renderImage() {
       if (!colorizer) return;
     }
 
+    if (colorizer.mode === 'cpu') showCpuProgress(0);
+
     setStatus('Rendering…');
     const output = await colorizer.colorize(inputImageData, currentOptions());
 
     drawImageData(elements.outputCanvas, output);
     replaceLoupeUrl('output', elements.outputCanvas.toDataURL('image/png'));
     await updateDownload();
+    hideCpuProgress();
     setStatus('Rendered.');
   } catch (error) {
+    hideCpuProgress();
     setError(error.message || String(error));
   } finally {
     renderInFlight = false;
@@ -226,6 +243,20 @@ async function renderImage() {
       scheduleRender(0);
     }
   }
+}
+
+function showCpuProgress(progress) {
+  elements.cpuProgress.hidden = false;
+  updateCpuProgress(progress);
+}
+
+function updateCpuProgress(progress) {
+  elements.cpuProgressBar.style.width = `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%`;
+}
+
+function hideCpuProgress() {
+  elements.cpuProgress.hidden = true;
+  updateCpuProgress(0);
 }
 
 function currentOptions() {

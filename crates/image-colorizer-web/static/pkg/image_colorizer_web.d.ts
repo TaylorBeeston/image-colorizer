@@ -10,19 +10,21 @@
 * @param {number} spatial_radius
 * @param {boolean} interpolate_colors
 * @param {number} interpolation_threshold
+* @param {Function} progress
 * @returns {Uint8Array}
 */
-export function cpu_colorize(rgba: Uint8Array, width: number, height: number, colorscheme: string, blend_factor: number, dither_amount: number, spatial_radius: number, interpolate_colors: boolean, interpolation_threshold: number): Uint8Array;
+export function cpu_colorize(rgba: Uint8Array, width: number, height: number, colorscheme: string, blend_factor: number, dither_amount: number, spatial_radius: number, interpolate_colors: boolean, interpolation_threshold: number, progress: Function): Uint8Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly cpu_colorize: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
+  readonly cpu_colorize: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => void;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_exn_store: (a: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

@@ -161,6 +161,39 @@ input[type=range] { width: 100%; accent-color: var(--blue); margin: 0; }
 .scheme-card strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .scheme-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; min-width: 0; height: 15px; overflow: hidden; border-radius: 999px; border: 1px solid #ffffff22; }
 .scheme-strip span { min-width: 0; }
+.cpu-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cpu-progress[hidden] { display: none; }
+
+.cpu-progress-label {
+  color: var(--quiet);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
+.progress-track span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green), var(--orange));
+  transition: width 120ms ease;
+}
+
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(24px, 1fr)); gap: 6px; max-height: 150px; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .swatch { aspect-ratio: 1; min-width: 0; border: 1px solid #ffffff33; border-radius: 999px; cursor: pointer; box-shadow: inset 0 0 0 2px #0005; }
 
@@ -212,6 +245,77 @@ dialog::backdrop { background: #000a; backdrop-filter: blur(8px); }
 .scheme-modal-grid { display: grid; grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr); gap: 14px; min-width: 0; }
 .scheme-tools, .scheme-editor { display: grid; gap: 10px; min-width: 0; }
 .example-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.parallel-graphic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.parallel-graphic section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-2);
+}
+
+.parallel-graphic h3,
+.parallel-graphic p {
+  margin: 0;
+}
+
+.cpu-lane {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.cpu-lane span,
+.gpu-grid span {
+  min-height: 28px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--blue) 25%, var(--panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+.cpu-lane span {
+  opacity: 0.35;
+  animation: cpu-step 1.4s infinite;
+}
+
+.cpu-lane span:nth-child(2) { animation-delay: 0.18s; }
+.cpu-lane span:nth-child(3) { animation-delay: 0.36s; }
+.cpu-lane span:nth-child(4) { animation-delay: 0.54s; }
+.cpu-lane span:nth-child(5) { animation-delay: 0.72s; }
+.cpu-lane span:nth-child(6) { animation-delay: 0.9s; }
+
+.gpu-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.gpu-grid span {
+  background: linear-gradient(135deg, var(--blue), var(--green));
+  animation: gpu-pulse 1.2s infinite alternate;
+}
+
+.gpu-grid span:nth-child(3n) { animation-delay: 0.12s; }
+.gpu-grid span:nth-child(4n) { animation-delay: 0.24s; }
+.gpu-grid span:nth-child(5n) { animation-delay: 0.36s; }
+
+@keyframes cpu-step {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  45% { opacity: 1; transform: translateY(-4px); }
+}
+
+@keyframes gpu-pulse {
+  from { opacity: 0.65; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1.02); }
+}
+
 pre {
   margin: 0;
   padding: 0.85rem;
@@ -261,6 +365,7 @@ pre {
 
 @media (max-width: 560px) {
   .app { width: 100%; margin: 0; gap: 8px; }
+  .parallel-graphic { grid-template-columns: 1fr; }
   .panel { border-radius: 0; }
   .controls { padding: 12px; }
   .workspace { min-height: 68vh; }

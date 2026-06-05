@@ -28,6 +28,7 @@ futures = "0.3"
 image = "0.24.6"
 indicatif = "0.17.3"
 palette = "0.7.2"
+js-sys = "0.3"
 reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = "1.0"
 serde_json = "1.0"

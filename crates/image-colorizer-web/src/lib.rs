@@ -4,6 +4,7 @@
 //! `static/` are served directly by static hosts such as Netlify and intentionally
 //! do not replace the CLI's native-GPU `image-colorizer serve` UI.
 
+use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
 /// Relative path to the static site assets from the repository root.
@@ -21,6 +22,7 @@ pub fn cpu_colorize(
     spatial_radius: u32,
     interpolate_colors: bool,
     interpolation_threshold: f32,
+    progress: &Function,
 ) -> Result<Vec<u8>, JsValue> {
     let pixel_count = width as usize * height as usize;
 
@@ -31,6 +33,7 @@ pub fn cpu_colorize(
     }
 
     let palette = build_palette(colorscheme, interpolate_colors, interpolation_threshold)?;
+    report_progress(progress, 0.03);
 
     let mut working = Vec::with_capacity(pixel_count);
 
@@ -54,12 +57,22 @@ pub fn cpu_colorize(
             rgb: quantized_rgb,
             lab: quantized_lab,
         });
+
+        if index % width as usize == 0 {
+            let y = index / width as usize;
+
+            if y & 7 == 0 {
+                report_progress(progress, 0.05 + 0.45 * y as f64 / height as f64);
+            }
+        }
     }
 
     let mut horizontal = vec![[0.0; 3]; pixel_count];
     let radius = spatial_radius as i32;
     let width_i32 = width as i32;
     let height_i32 = height as i32;
+
+    report_progress(progress, 0.50);
 
     for y in 0..height_i32 {
         for x in 0..width_i32 {
@@ -79,9 +92,14 @@ pub fn cpu_colorize(
             horizontal[(x + y * width_i32) as usize] =
                 [sum[0] / count, sum[1] / count, sum[2] / count];
         }
+
+        if y & 7 == 0 {
+            report_progress(progress, 0.50 + 0.20 * f64::from(y) / f64::from(height));
+        }
     }
 
     let mut output = vec![0; pixel_count * 4];
+    report_progress(progress, 0.70);
 
     for y in 0..height_i32 {
         for x in 0..width_i32 {
@@ -110,9 +128,19 @@ pub fn cpu_colorize(
             out[2] = (final_rgb[2] * 255.0) as u8;
             out[3] = 255;
         }
+
+        if y & 7 == 0 {
+            report_progress(progress, 0.70 + 0.29 * f64::from(y) / f64::from(height));
+        }
     }
 
+    report_progress(progress, 1.0);
+
     Ok(output)
+}
+
+fn report_progress(progress: &Function, value: f64) {
+    let _ = progress.call1(&JsValue::NULL, &JsValue::from_f64(value));
 }
 
 #[derive(Clone, Copy)]

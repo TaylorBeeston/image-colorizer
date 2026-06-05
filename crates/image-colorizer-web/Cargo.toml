@@ -17,5 +17,6 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+js-sys.workspace = true
 wasm-bindgen.workspace = true
 
