@@ -206,7 +206,107 @@ image-colorizer serve</code></pre>
           <p>Many chunks run at the same time.</p>
         </section>
       </div>
-      <p>The colorizer touches every pixel several times. The GPU version splits that work into thousands of tiny parallel jobs. Slower mode is still local and private, but it has far fewer workers available, so big images and large spatial radius values take longer.</p>
+      <p>The colorizer touches every pixel several times. The GPU version splits that work into thousands of tiny parallel jobs. CPU fallback has far fewer workers available, so big images and large spatial radius values take longer.</p>
+      <button id="openDeepCpuExplain" class="ghost" type="button">Can you elaborate further?</button>
+    </div>
+  </dialog>
+
+  <dialog id="deepCpuExplainModal" class="deep-modal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2>What Image Colorizer is doing</h2>
+        <button id="closeDeepCpuExplain" class="modal-close ghost" type="button" aria-label="Close detailed performance explanation">×</button>
+      </div>
+
+      <p>Every render runs the image through three stages. The math is the same idea in fast mode and slower mode; the difference is how much work can happen at once.</p>
+
+      <div class="pipeline-deep">
+        <section>
+          <div class="stage-title">
+            <span>1</span>
+            <div>
+              <h3>Match each pixel to the palette</h3>
+              <p>Convert source color to Lab, find the closest palette color, apply blend and dither.</p>
+            </div>
+          </div>
+          <div class="stage-compare">
+            <div>
+              <strong>CPU fallback</strong>
+              <div class="scanline-grid cpu-scan">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <p>Works through pixels in a narrow stream.</p>
+            </div>
+            <div>
+              <strong>GPU fast path</strong>
+              <div class="scanline-grid gpu-burst">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <p>Many pixels match against the palette at the same time.</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div class="stage-title">
+            <span>2</span>
+            <div>
+              <h3>Smooth color decisions horizontally</h3>
+              <p>Look left and right within the spatial radius to soften abrupt chroma changes.</p>
+            </div>
+          </div>
+          <div class="stage-compare">
+            <div>
+              <strong>CPU fallback</strong>
+              <div class="radius-strip cpu-scan">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <p>Each output pixel samples a row window before moving on.</p>
+            </div>
+            <div>
+              <strong>GPU fast path</strong>
+              <div class="radius-strip gpu-burst">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <p>Many row windows are averaged in parallel.</p>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div class="stage-title">
+            <span>3</span>
+            <div>
+              <h3>Smooth vertically and restore luminance</h3>
+              <p>Average the horizontal result up and down, restore the original lightness, and write final pixels.</p>
+            </div>
+          </div>
+          <div class="stage-compare">
+            <div>
+              <strong>CPU fallback</strong>
+              <div class="column-grid cpu-scan">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <p>Final pixels arrive as the CPU completes each region.</p>
+            </div>
+            <div>
+              <strong>GPU fast path</strong>
+              <div class="column-grid gpu-burst">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <p>The final image is produced by lots of small chunks finishing together.</p>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </dialog>
 </body>
