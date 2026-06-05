@@ -5,6 +5,7 @@ permissions:
   contents: write
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -34,7 +35,7 @@ jobs:
   publish-aur:
     needs: release-plz
     runs-on: ubuntu-latest
-    if: ${{ needs.release-plz.outputs.release_created == 'true' }}
+    if: ${{ needs.release-plz.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
     container: 
       image: archlinux:base-devel
     steps:
@@ -49,7 +50,7 @@ jobs:
           sed "s/pkgver=.*/pkgver=$version/" PKGBUILD.template > PKGBUILD
 
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsSL "https://crates.io/api/v1/crates/image-colorizer/$version/download" -o "image-colorizer-$version.crate"; then
+            if curl -fL "https://static.crates.io/crates/image-colorizer/image-colorizer-$version.crate" -o "image-colorizer-$version.crate"; then
               break
             fi
 

@@ -14,7 +14,7 @@ optdepends=(
   'vulkan-intel: for Vulkan support on Intel GPUs'
   'vulkan-radeon: for Vulkan support on AMD GPUs'
 )
-source=("$pkgname-$pkgver.tar.gz::https://crates.io/api/v1/crates/$pkgname/$pkgver/download")
+source=("$pkgname-$pkgver.crate::https://static.crates.io/crates/$pkgname/$pkgname-$pkgver.crate")
 sha256sums=('PLACEHOLDER')
 
 build() {
