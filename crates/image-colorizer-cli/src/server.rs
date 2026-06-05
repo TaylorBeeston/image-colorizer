@@ -4,17 +4,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Path as AxumPath, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderValue, Response, StatusCode};
 use axum::response::Html;
 use axum::routing::{get, post};
-use axum::Router;
+use axum::{Json, Router};
 use image::codecs::png::PngEncoder;
 use image::{ColorType, DynamicImage, ImageEncoder};
 use image_colorizer_core::utils::{hex_to_rgb, interpolate_color};
 use image_colorizer_core::{ColorizerConfig, GpuColorizer, RenderedImage};
 use palette::{color_difference::ImprovedCiede2000, FromColor, Lab};
+use serde_derive::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 struct AppState {
@@ -51,6 +52,35 @@ struct WebRequest {
     interpolation_threshold: f32,
 }
 
+#[derive(Debug, Serialize)]
+struct ColorschemeSummary {
+    name: String,
+    colors: Vec<String>,
+    source: ColorschemeSource,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ColorschemeSource {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Serialize)]
+struct ColorschemeDetail {
+    name: String,
+    text: String,
+    colors: Vec<String>,
+    source: ColorschemeSource,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubContent {
+    name: String,
+    #[serde(default)]
+    download_url: Option<String>,
+}
+
 pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
     let colorizer = GpuColorizer::new(&config.colorizer).await?;
     let state = Arc::new(AppState {
@@ -78,6 +108,8 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
     let app = Router::new()
         .route("/", get(index))
         .route("/colorize", post(colorize_upload))
+        .route("/colorschemes", get(list_colorschemes))
+        .route("/colorschemes/:name", get(fetch_colorscheme))
         .route("/save-config", post(save_config))
         .with_state(state);
 
@@ -204,6 +236,78 @@ async fn save_config(
         .map_err(server_error)
 }
 
+async fn list_colorschemes(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<ColorschemeSummary>>, (StatusCode, String)> {
+    let mut schemes = Vec::new();
+
+    if let Ok(mut entries) = tokio::fs::read_dir(&state.defaults.config_dir).await {
+        while let Some(entry) = entries.next_entry().await.map_err(server_error)? {
+            let path = entry.path();
+
+            if path.extension().and_then(|extension| extension.to_str()) != Some("txt") {
+                continue;
+            }
+
+            let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let content = tokio::fs::read_to_string(&path)
+                .await
+                .map_err(server_error)?;
+
+            if let Ok(colors) = parse_colorscheme_hex(&content) {
+                schemes.push(ColorschemeSummary {
+                    name: name.to_string(),
+                    colors,
+                    source: ColorschemeSource::Local,
+                });
+            }
+        }
+    }
+
+    for scheme in remote_colorschemes().await? {
+        if schemes.iter().any(|existing| existing.name == scheme.name) {
+            continue;
+        }
+
+        schemes.push(scheme);
+    }
+
+    schemes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(Json(schemes))
+}
+
+async fn fetch_colorscheme(
+    AxumPath(name): AxumPath<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ColorschemeDetail>, (StatusCode, String)> {
+    let name = sanitize_config_name(&name);
+    let local_path = state.defaults.config_dir.join(format!("{}.txt", name));
+
+    if let Ok(text) = tokio::fs::read_to_string(&local_path).await {
+        let colors = parse_colorscheme_hex(&text)?;
+
+        return Ok(Json(ColorschemeDetail {
+            name,
+            text,
+            colors,
+            source: ColorschemeSource::Local,
+        }));
+    }
+
+    let text = download_remote_colorscheme(&name).await?;
+    let colors = parse_colorscheme_hex(&text)?;
+
+    Ok(Json(ColorschemeDetail {
+        name,
+        text,
+        colors,
+        source: ColorschemeSource::Remote,
+    }))
+}
+
 impl WebRequest {
     fn to_colorizer_config(&self) -> Result<ColorizerConfig, (StatusCode, String)> {
         let colors = parse_colorscheme(&self.colorscheme_text)?;
@@ -282,6 +386,115 @@ async fn parse_web_request(
         interpolate_colors,
         interpolation_threshold,
     })
+}
+
+async fn remote_colorschemes() -> Result<Vec<ColorschemeSummary>, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.github.com/repos/TaylorBeeston/image-colorizer/contents/colorschemes?ref=main")
+        .header("User-Agent", "image-colorizer")
+        .send()
+        .await
+        .map_err(server_error)?;
+
+    if !response.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("GitHub colorscheme list returned {}", response.status()),
+        ));
+    }
+
+    let contents = response
+        .json::<Vec<GithubContent>>()
+        .await
+        .map_err(server_error)?;
+    let mut schemes = Vec::new();
+
+    for item in contents {
+        let Some(name) = item.name.strip_suffix(".txt") else {
+            continue;
+        };
+        let Some(url) = item.download_url else {
+            continue;
+        };
+        let Ok(text) = download_url(&client, &url).await else {
+            continue;
+        };
+        let Ok(colors) = parse_colorscheme_hex(&text) else {
+            continue;
+        };
+
+        schemes.push(ColorschemeSummary {
+            name: name.to_string(),
+            colors,
+            source: ColorschemeSource::Remote,
+        });
+    }
+
+    Ok(schemes)
+}
+
+async fn download_remote_colorscheme(name: &str) -> Result<String, (StatusCode, String)> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://raw.githubusercontent.com/TaylorBeeston/image-colorizer/main/colorschemes/{}.txt",
+        name.to_lowercase()
+    );
+    let text = download_url(&client, &url).await?;
+
+    parse_colorscheme_hex(&text)?;
+
+    Ok(text)
+}
+
+async fn download_url(client: &reqwest::Client, url: &str) -> Result<String, (StatusCode, String)> {
+    let response = client
+        .get(url)
+        .header("User-Agent", "image-colorizer")
+        .send()
+        .await
+        .map_err(server_error)?;
+
+    if response.status().is_success() {
+        response.text().await.map_err(server_error)
+    } else {
+        Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Could not download colorscheme: {}", response.status()),
+        ))
+    }
+}
+
+fn parse_colorscheme_hex(content: &str) -> Result<Vec<String>, (StatusCode, String)> {
+    let colors = content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.split("//").next().unwrap_or("").trim();
+
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .map(|hex| {
+            hex_to_rgb(hex).map(|_| hex.to_string()).map_err(|err| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid color '{}': {}", hex, err),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if colors.is_empty() {
+        Err((
+            StatusCode::BAD_REQUEST,
+            "Colorscheme must contain at least one color".to_string(),
+        ))
+    } else {
+        Ok(colors)
+    }
 }
 
 fn parse_colorscheme(content: &str) -> Result<Vec<Lab>, (StatusCode, String)> {
@@ -526,8 +739,8 @@ fn render_index(defaults: &WebDefaults) -> String {
       position: sticky;
       top: 14px;
       height: calc(100vh - 28px);
-      overflow: auto;
-      padding: 22px;
+      overflow: hidden;
+      padding: 16px;
     }
 
     main.panel {
@@ -538,20 +751,20 @@ fn render_index(defaults: &WebDefaults) -> String {
       gap: 16px;
     }
 
-    h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.4rem); letter-spacing: -0.07em; }
+    h1 { margin: 0; font-size: clamp(1.65rem, 3vw, 2.5rem); letter-spacing: -0.06em; }
     h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text); }
-    p { color: var(--muted); line-height: 1.55; }
-    .lede { margin: 0.3rem 0 1.2rem; }
+    p { color: var(--muted); line-height: 1.4; }
+    .lede { margin: 0.15rem 0 0.55rem; font-size: 0.88rem; }
 
-    form { display: grid; gap: 16px; }
-    fieldset { display: grid; gap: 13px; border: 1px solid var(--line); border-radius: 20px; padding: 16px; }
-    legend { padding: 0 0.35rem; color: var(--quiet); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.14em; }
+    form { display: grid; gap: 9px; }
+    fieldset { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 18px; padding: 10px; }
+    legend { padding: 0 0.35rem; color: var(--quiet); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.14em; }
 
-    label.control { display: grid; gap: 7px; }
+    label.control { display: grid; gap: 4px; }
     .control-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
     .control-title { font-weight: 800; }
     .value { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 800; }
-    .hint { margin: 0; color: var(--quiet); font-size: 0.86rem; }
+    .hint { margin: 0; color: var(--quiet); font-size: 0.75rem; line-height: 1.25; }
 
     input[type=file], input[type=text], textarea {
       width: 100%;
@@ -559,20 +772,22 @@ fn render_index(defaults: &WebDefaults) -> String {
       background: var(--panel-2);
       border: 1px solid #54546d;
       border-radius: 14px;
-      padding: 0.78rem;
+      padding: 0.55rem;
     }
 
     input[type=file] { border-style: dashed; }
-    textarea { min-height: 210px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; line-height: 1.45; }
-    input[type=range] { width: 100%; accent-color: var(--blue); }
+    textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; line-height: 1.45; }
+    input[type=range] { width: 100%; accent-color: var(--blue); margin: 0; }
 
-    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .toggle { display: flex; gap: 0.6rem; align-items: center; color: var(--muted); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .toggle { display: flex; gap: 0.5rem; align-items: center; color: var(--muted); }
 
     .swatches {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(22px, 1fr));
+      gap: 6px;
+      max-height: 76px;
+      overflow: auto;
     }
 
     .swatch {
@@ -582,6 +797,51 @@ fn render_index(defaults: &WebDefaults) -> String {
       cursor: pointer;
       box-shadow: inset 0 0 0 2px #0005;
     }
+
+    details {
+      border: 1px solid #363646;
+      border-radius: 14px;
+      padding: 8px;
+      background: #18182099;
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .scheme-browser {
+      display: grid;
+      gap: 7px;
+      max-height: 220px;
+      overflow: auto;
+      padding-top: 8px;
+    }
+
+    .scheme-card {
+      display: grid;
+      gap: 7px;
+      padding: 10px;
+      border: 1px solid #363646;
+      border-radius: 14px;
+      background: #111118;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .scheme-card strong { text-transform: capitalize; }
+
+    .scheme-strip {
+      display: flex;
+      height: 16px;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid #ffffff22;
+    }
+
+    .scheme-strip span { flex: 1; }
 
     .workspace {
       min-height: 0;
@@ -707,14 +967,14 @@ fn render_index(defaults: &WebDefaults) -> String {
 <body>
   <div class="app">
     <aside class="panel">
-      <h1>Colorizer Workstation</h1>
-      <p class="lede">Tune the native GPU pipeline live. Upload once; almost every control re-renders the preview.</p>
+      <h1>Image Colorizer</h1>
+      <p class="lede">A local workspace for palette-driven image colorization. Upload, tune, compare, and save the look.</p>
 
       <form id="form">
         <fieldset>
           <legend>Source</legend>
           <input id="file" name="image" type="file" accept="image/*">
-          <p class="hint">The image stays on this machine and is stored only in this local server process.</p>
+          <p class="hint">Processed locally by this app.</p>
         </fieldset>
 
         <fieldset>
@@ -723,28 +983,32 @@ fn render_index(defaults: &WebDefaults) -> String {
           <label class="control">
             <span class="control-head"><span class="control-title">Blend</span><span class="value" id="blendValue"></span></span>
             <input id="blend" name="blend_factor" type="range" min="0" max="1" step="0.01" value="__BLEND__">
-            <p class="hint">How strongly the palette result replaces the original. Lower keeps more source color.</p>
           </label>
 
           <label class="control">
             <span class="control-head"><span class="control-title">Dither</span><span class="value" id="ditherValue"></span></span>
             <input id="dither" name="dither_amount" type="range" min="0" max="1" step="0.01" value="__DITHER__">
-            <p class="hint">Adds controlled noise before final transfer to reduce flat bands and posterization.</p>
           </label>
 
           <label class="control">
             <span class="control-head"><span class="control-title">Spatial radius</span><span class="value" id="radiusValue"></span></span>
             <input id="radius" name="spatial_averaging_radius" type="range" min="0" max="100" step="1" value="__RADIUS__">
-            <p class="hint">Samples nearby pixels for smoother chroma. Bigger radii are softer and more painterly.</p>
           </label>
 
           <label class="control">
-            <span class="control-head"><span class="control-title">Interpolation threshold</span><span class="value" id="thresholdValue"></span></span>
+            <span class="control-head"><span class="control-title">Palette detail</span><span class="value" id="thresholdValue"></span></span>
             <input id="threshold" name="interpolation_threshold" type="range" min="0.1" max="100" step="0.1" value="__THRESHOLD__">
-            <p class="hint">Controls inserted palette colors in Lab space. Lower values create denser ramps.</p>
           </label>
 
-          <label class="toggle"><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" __INTERPOLATE_CHECKED__> Interpolate colorscheme</label>
+          <label class="toggle"><input id="interpolate" name="interpolate_colors" type="checkbox" value="true" __INTERPOLATE_CHECKED__> Smooth palette ramps</label>
+
+          <details>
+            <summary>What do these controls do?</summary>
+            <p class="hint"><strong>Blend</strong> controls how much of the colorized result replaces the original.</p>
+            <p class="hint"><strong>Dither</strong> adds subtle variation to reduce flat bands.</p>
+            <p class="hint"><strong>Spatial radius</strong> smooths chroma using nearby pixels.</p>
+            <p class="hint"><strong>Palette detail</strong> controls how many in-between palette colors are inserted.</p>
+          </details>
         </fieldset>
 
         <fieldset>
@@ -753,17 +1017,26 @@ fn render_index(defaults: &WebDefaults) -> String {
             <span class="control-title">Name</span>
             <input id="schemeName" name="colorscheme_name" type="text" value="__COLORSCHEME__">
           </label>
+          <details>
+            <summary>Browse available colorschemes</summary>
+            <div class="scheme-browser" id="schemeBrowser">
+              <p class="hint">Loading colorschemes…</p>
+            </div>
+          </details>
           <div class="swatches" id="swatches"></div>
-          <div class="row">
-            <input id="newColor" type="text" placeholder="#7e9cd8" aria-label="New color">
-            <button id="addColor" class="ghost" type="button">Add color</button>
-            <button id="sortColors" class="ghost" type="button">Sort</button>
-          </div>
-          <label class="control">
-            <span class="control-title">Colors</span>
-            <textarea id="schemeText" name="colorscheme_text" spellcheck="false">__COLORSCHEME_TEXT__</textarea>
-            <p class="hint">One hex color per line. Comments with <code>//</code> are ignored. Click a swatch to remove it.</p>
-          </label>
+          <details>
+            <summary>Edit colors</summary>
+            <div class="row">
+              <input id="newColor" type="text" placeholder="#7e9cd8" aria-label="New color">
+              <button id="addColor" class="ghost" type="button">Add color</button>
+              <button id="sortColors" class="ghost" type="button">Sort</button>
+            </div>
+            <label class="control">
+              <span class="control-title">Colors</span>
+              <textarea id="schemeText" name="colorscheme_text" spellcheck="false">__COLORSCHEME_TEXT__</textarea>
+              <p class="hint">One hex color per line. Comments with <code>//</code> are ignored. Click a swatch to remove it.</p>
+            </label>
+          </details>
         </fieldset>
 
         <div class="row">
@@ -801,6 +1074,7 @@ fn render_index(defaults: &WebDefaults) -> String {
     const file = document.querySelector('#file');
     const compare = document.querySelector('#compare');
     const afterLayer = document.querySelector('#afterLayer');
+    const schemeBrowser = document.querySelector('#schemeBrowser');
     const divider = document.querySelector('#divider');
     const loupe = document.querySelector('#loupe');
     const toggleLoupe = document.querySelector('#toggleLoupe');
@@ -815,6 +1089,7 @@ fn render_index(defaults: &WebDefaults) -> String {
     const swatches = document.querySelector('#swatches');
     const newColor = document.querySelector('#newColor');
     const controls = ['blend', 'dither', 'radius', 'threshold'];
+    let currentSplit = 50;
     let inputUrl;
     let outputUrl;
     let requestId = 0;
@@ -849,6 +1124,47 @@ fn render_index(defaults: &WebDefaults) -> String {
         });
         swatches.append(button);
       }
+    }
+
+    function renderSchemeStrip(colors) {
+      return `<div class="scheme-strip">${colors.slice(0, 16).map(color => `<span style="background:${color}"></span>`).join('')}</div>`;
+    }
+
+    async function loadSchemeBrowser() {
+      try {
+        const response = await fetch('/colorschemes');
+        if (!response.ok) throw new Error(await response.text());
+        const schemes = await response.json();
+        schemeBrowser.innerHTML = '';
+
+        for (const scheme of schemes) {
+          const card = document.createElement('button');
+          card.type = 'button';
+          card.className = 'scheme-card';
+          card.innerHTML = `<strong>${scheme.name}</strong>${renderSchemeStrip(scheme.colors)}<span class="hint">${scheme.source}</span>`;
+          card.addEventListener('click', () => loadScheme(scheme.name));
+          schemeBrowser.append(card);
+        }
+      } catch (error) {
+        schemeBrowser.innerHTML = `<p class="hint">Could not load colorscheme browser: ${error.message || error}</p>`;
+      }
+    }
+
+    async function loadScheme(name) {
+      status.className = 'status';
+      status.textContent = `Loading ${name}…`;
+      const response = await fetch(`/colorschemes/${encodeURIComponent(name)}`);
+      if (!response.ok) {
+        status.className = 'status error';
+        status.textContent = await response.text();
+        return;
+      }
+
+      const scheme = await response.json();
+      schemeName.value = scheme.name;
+      schemeText.value = scheme.text;
+      syncValues();
+      schedulePreview();
     }
 
     function formData(includeImage) {
@@ -900,6 +1216,7 @@ fn render_index(defaults: &WebDefaults) -> String {
 
     function setSplit(percent) {
       const clamped = Math.max(0, Math.min(100, percent));
+      currentSplit = clamped;
       afterLayer.style.clipPath = `inset(0 0 0 ${clamped}%)`;
       divider.style.left = `${clamped}%`;
       divider.setAttribute('aria-valuenow', String(Math.round(clamped)));
@@ -921,9 +1238,11 @@ fn render_index(defaults: &WebDefaults) -> String {
       const rect = compare.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
+      const sourceUrl = x / rect.width * 100 < currentSplit ? inputUrl : outputUrl;
+      if (!sourceUrl) return;
       loupe.style.left = `${event.clientX + 18}px`;
       loupe.style.top = `${event.clientY + 18}px`;
-      loupe.style.backgroundImage = `url(${outputUrl})`;
+      loupe.style.backgroundImage = `url(${sourceUrl})`;
       loupe.style.backgroundSize = `${rect.width * 5}px ${rect.height * 5}px`;
       loupe.style.backgroundPosition = `${-(x * 5 - 95)}px ${-(y * 5 - 95)}px`;
     });
@@ -987,6 +1306,7 @@ fn render_index(defaults: &WebDefaults) -> String {
     });
 
     syncValues();
+    loadSchemeBrowser();
     setSplit(50);
   </script>
 </body>
