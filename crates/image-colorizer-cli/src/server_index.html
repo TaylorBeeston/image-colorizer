@@ -265,7 +265,7 @@
       user-select: none;
       -webkit-user-select: none;
       touch-action: none;
-      cursor: ew-resize;
+      cursor: default;
     }
 
     .compare.empty { cursor: default; }
@@ -346,6 +346,11 @@
 
     .badge.before { left: 14px; }
     .badge.after { right: 14px; }
+
+    .compare.hide-before .badge.before,
+    .compare.hide-after .badge.after {
+      opacity: 0;
+    }
 
     .loupe {
       position: fixed;
@@ -838,6 +843,8 @@
       afterLayer.style.clipPath = `inset(0 0 0 ${clamped}%)`;
       divider.style.left = `${clamped}%`;
       divider.setAttribute('aria-valuenow', String(Math.round(clamped)));
+      compare.classList.toggle('hide-before', clamped <= 2);
+      compare.classList.toggle('hide-after', clamped >= 98);
     }
 
     function moveSplit(event) {
@@ -846,13 +853,34 @@
       window.getSelection()?.removeAllRanges();
     }
 
+    function nearDivider(event) {
+      const rect = compare.getBoundingClientRect();
+      const dividerX = rect.left + rect.width * currentSplit / 100;
+      const radius = event.pointerType === 'touch' ? 36 : 28;
+      return Math.abs(event.clientX - dividerX) <= radius;
+    }
+
+    function endDrag(event) {
+      if (dragging && compare.hasPointerCapture(event.pointerId)) compare.releasePointerCapture(event.pointerId);
+      dragging = false;
+      document.body.classList.remove('dragging');
+    }
+
     compare.addEventListener('pointerdown', event => {
       if (compare.classList.contains('empty')) return;
       event.preventDefault();
-      dragging = true;
-      compare.setPointerCapture(event.pointerId);
-      document.body.classList.add('dragging');
-      moveSplit(event);
+
+      if (nearDivider(event)) {
+        dragging = true;
+        compare.setPointerCapture(event.pointerId);
+        document.body.classList.add('dragging');
+        moveSplit(event);
+      }
+
+      if (loupeEnabled) {
+        loupe.classList.add('on');
+        updateLoupe(event);
+      }
     });
 
     compare.addEventListener('pointermove', event => {
@@ -861,14 +889,13 @@
     });
 
     compare.addEventListener('pointerup', event => {
-      dragging = false;
-      document.body.classList.remove('dragging');
-      if (compare.hasPointerCapture(event.pointerId)) compare.releasePointerCapture(event.pointerId);
+      endDrag(event);
+      if (event.pointerType === 'touch') loupe.classList.remove('on');
     });
 
-    compare.addEventListener('pointercancel', () => {
-      dragging = false;
-      document.body.classList.remove('dragging');
+    compare.addEventListener('pointercancel', event => {
+      endDrag(event);
+      loupe.classList.remove('on');
     });
 
     function updateLoupe(event) {
@@ -878,8 +905,20 @@
       const y = event.clientY - rect.top;
       const sourceUrl = x / rect.width * 100 < currentSplit ? inputUrl : outputUrl;
       if (!sourceUrl) return;
-      loupe.style.left = `${event.clientX + 18}px`;
-      loupe.style.top = `${event.clientY + 18}px`;
+
+      const size = Math.max(loupe.offsetWidth, 190);
+      const margin = 8;
+      let left = event.clientX + 18;
+      let top = event.clientY + 18;
+
+      if (left + size + margin > window.innerWidth) left = event.clientX - size - 18;
+      if (top + size + margin > window.innerHeight) top = event.clientY - size - 18;
+
+      left = Math.max(margin, Math.min(window.innerWidth - size - margin, left));
+      top = Math.max(margin, Math.min(window.innerHeight - size - margin, top));
+
+      loupe.style.left = `${left}px`;
+      loupe.style.top = `${top}px`;
       loupe.style.backgroundImage = `url(${sourceUrl})`;
       loupe.style.backgroundSize = `${rect.width * 5}px ${rect.height * 5}px`;
       loupe.style.backgroundPosition = `${-(x * 5 - 95)}px ${-(y * 5 - 95)}px`;
