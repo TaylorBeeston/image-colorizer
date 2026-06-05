@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Colorizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="panel controls">
+      <h1>Image Colorizer</h1>
+
+      <form id="form">
+        <fieldset>
+          <legend>Source</legend>
+          <input id="file" type="file" accept="image/*">
+          <p class="hint">Runs entirely in this browser with WebGPU. No upload, no server.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Parameters</legend>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Blend</span><button class="help-button" type="button" data-help="blend">?</button></span>
+              <span class="value" id="blendValue"></span>
+            </span>
+            <input id="blend" type="range" min="0" max="1" step="0.01" value="0.9">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Dither</span><button class="help-button" type="button" data-help="dither">?</button></span>
+              <span class="value" id="ditherValue"></span>
+            </span>
+            <input id="dither" type="range" min="0" max="1" step="0.01" value="0.1">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Spatial radius</span><button class="help-button" type="button" data-help="radius">?</button></span>
+              <span class="value" id="radiusValue"></span>
+            </span>
+            <input id="radius" type="range" min="0" max="100" step="1" value="10">
+          </label>
+
+          <label class="control">
+            <span class="control-head">
+              <span class="control-label"><span class="control-title">Palette detail</span><button class="help-button" type="button" data-help="threshold">?</button></span>
+              <span class="value" id="thresholdValue"></span>
+            </span>
+            <input id="threshold" type="range" min="0.1" max="100" step="0.1" value="2.5">
+          </label>
+
+          <label class="toggle"><input id="interpolate" type="checkbox" checked> Smooth palette ramps</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Colorscheme</legend>
+          <div class="scheme-summary">
+            <div class="scheme-preview">
+              <span class="hint">Current</span>
+              <strong id="schemeDisplay">kanagawa</strong>
+              <div id="activeSchemeStrip" class="scheme-strip"></div>
+            </div>
+            <button id="openScheme" class="ghost" type="button">Choose</button>
+          </div>
+        </fieldset>
+
+        <div class="row">
+          <button id="saveConfig" class="secondary" type="button">Save config</button>
+          <button id="importConfig" class="ghost" type="button">Import config</button>
+          <input id="configFile" type="file" accept="application/json,.json" hidden>
+        </div>
+      </form>
+    </aside>
+
+    <main class="panel workspace">
+      <div class="toolbar">
+        <p id="status" class="status">Starting WebGPU…</p>
+        <div class="row">
+          <button id="toggleLoupe" class="ghost" type="button">Loupe: off</button>
+          <a id="download" class="download" hidden>Download result</a>
+        </div>
+      </div>
+
+      <section id="compare" class="compare empty">
+        <div class="image-layer before-layer"><canvas id="inputCanvas" aria-label="Original image preview"></canvas></div>
+        <div class="image-layer after-layer" id="afterLayer"><canvas id="outputCanvas" aria-label="Colorized image preview"></canvas></div>
+        <span class="badge before">Original</span>
+        <span class="badge after">Colorized</span>
+        <div id="divider" class="divider" role="slider" aria-label="Comparison split" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"></div>
+      </section>
+
+      <p class="small">Drag the handle to compare. Turn on the loupe and touch or hover the preview to inspect pixels.</p>
+    </main>
+  </div>
+
+  <div id="loupe" class="loupe"></div>
+
+  <dialog id="schemeModal" class="scheme-modal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2>Colorscheme</h2>
+        <button id="closeScheme" class="modal-close ghost" type="button" aria-label="Close colorscheme picker">×</button>
+      </div>
+
+      <div class="scheme-modal-grid">
+        <section class="scheme-tools">
+          <label class="control">
+            <span class="control-title">Search</span>
+            <input id="schemeSearch" type="text" placeholder="Catppuccin, Gruvbox, Tokyo Night…" autocomplete="off">
+          </label>
+          <div class="scheme-browser" id="schemeBrowser"><p class="hint">Loading colorschemes…</p></div>
+        </section>
+
+        <section class="scheme-editor">
+          <label class="control">
+            <span class="control-title">Name</span>
+            <input id="schemeName" type="text" value="kanagawa">
+          </label>
+
+          <div class="swatches" id="swatches"></div>
+
+          <div class="row">
+            <input id="newColor" type="text" placeholder="#7e9cd8" aria-label="New color">
+            <button id="addColor" class="ghost" type="button">Add color</button>
+            <button id="sortColors" class="ghost" type="button">Sort</button>
+          </div>
+
+          <label class="control">
+            <span class="control-title">Colors</span>
+            <textarea id="schemeText" spellcheck="false"></textarea>
+            <p class="hint">One hex color per line. Comments with <code>//</code> are ignored. Click a swatch to remove it.</p>
+          </label>
+
+          <div class="modal-actions">
+            <button id="saveColorscheme" class="secondary" type="button">Save colorscheme</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="helpModal">
+    <div class="modal-body">
+      <div class="modal-head">
+        <h2 id="helpTitle"></h2>
+        <button id="closeHelp" class="modal-close ghost" type="button" aria-label="Close help">×</button>
+      </div>
+      <p id="helpCopy"></p>
+      <div id="helpExamples" class="example-grid"></div>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

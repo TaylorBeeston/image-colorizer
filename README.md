@@ -136,9 +136,15 @@ You can also create custom color schemes by adding a text file with one hex colo
 
 If a requested colorscheme is not found beside the config file, Image Colorizer attempts to download `<colorscheme>.txt` from this repository's `colorschemes/` directory into your config directory.
 
-## Browser WebGPU Feasibility
+## Static Browser App
 
-A fully in-browser version is feasible: WebGPU supports compute pipelines and WGSL shaders, which are exactly what the core colorization pipeline uses. The current implementation is still native Rust through `wgpu`, so the local web UI is the first web target. A browser-native version would need a separate frontend/WASM or TypeScript WebGPU layer for image decode/encode, GPU buffer management, and browser compatibility handling.
+This branch includes a client-only WebGPU app in `web/`. It can be hosted as static files; `netlify.toml` publishes that directory and sets the cross-origin headers browsers expect for GPU-heavy frontend work.
+
+```bash
+python -m http.server 8080 --directory web
+```
+
+Then open `http://127.0.0.1:8080`. The static app decodes images in the browser, runs the same three WGSL compute passes on the user's GPU, and writes the result back into a canvas for preview/download. No image data is uploaded.
 
 ## How It Works
 
