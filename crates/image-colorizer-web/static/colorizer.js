@@ -6,20 +6,26 @@ const WORKGROUP_SIZE = 16;
 const PIXEL_STRIDE = 12;
 const WORKING_STRIDE = 24;
 const PARAMS_SIZE = 32;
+const WEBGPU_START_TIMEOUT_MS = 10_000;
+
 
 export class WebGpuColorizer {
   static async create() {
-    if (!navigator.gpu) throw new Error('WebGPU is not available in this browser. Use a current Chrome, Edge, or Safari Technology Preview over HTTPS or localhost.');
+    if (!navigator.gpu) throw new Error(webGpuUnavailableMessage('This browser does not expose WebGPU.'));
 
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) throw new Error('No WebGPU adapter was found. Check that GPU acceleration is enabled.');
+    const adapter = await withTimeout(
+      navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }),
+      WEBGPU_START_TIMEOUT_MS,
+      webGpuUnavailableMessage('Timed out while requesting a WebGPU adapter.'),
+    );
+    if (!adapter) throw new Error(webGpuUnavailableMessage('No WebGPU adapter was found.'));
 
-    const device = await adapter.requestDevice({
+    const device = await withTimeout(adapter.requestDevice({
       requiredLimits: {
         maxBufferSize: adapter.limits.maxBufferSize,
         maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
       },
-    });
+    }), WEBGPU_START_TIMEOUT_MS, webGpuUnavailableMessage('Timed out while creating a WebGPU device.'));
     const [pass1Source, spatialSource] = await Promise.all([
       fetchText('shaders/colorize_pass1.wgsl'),
       fetchText('shaders/spatial_average.wgsl'),
@@ -421,4 +427,20 @@ function radToDeg(radians) {
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
+}
+
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
+function webGpuUnavailableMessage(reason) {
+  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'https:';
+  const secureContext = window.isSecureContext;
+  const transport = secureContext && local ? '' : ' Serve this page from https://, localhost, or 127.0.0.1.';
+
+  return `${reason} WebGPU is required for the static browser app.${transport} Try current Chrome or Edge with hardware acceleration enabled, or use 'image-colorizer serve' to render through a machine that has a supported GPU.`;
 }
