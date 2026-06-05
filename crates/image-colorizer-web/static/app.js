@@ -76,6 +76,7 @@ const help = {
 };
 
 let colorizer;
+let colorizerReady;
 let inputImageData;
 let inputFileName = 'image.png';
 let inputLoupeUrl;
@@ -98,12 +99,13 @@ async function bootstrap() {
   setSplit(50);
   loadSchemeBrowser();
 
-  try {
-    colorizer = await WebGpuColorizer.create();
-    setStatus('WebGPU ready. Choose an image to begin.');
-  } catch (error) {
-    setError(error.message || String(error));
-  }
+  colorizerReady = WebGpuColorizer.create()
+    .then(instance => {
+      colorizer = instance;
+      setStatus(inputImageData ? 'WebGPU ready. Rendering…' : 'WebGPU ready. Choose an image to begin.');
+      if (inputImageData) scheduleRender(0);
+    })
+    .catch(error => setError(error.message || String(error)));
 }
 
 function bindEvents() {
@@ -143,10 +145,11 @@ async function loadImage() {
   if (!file) return;
 
   inputFileName = file.name;
-  setStatus('Loading image…');
+  setStatus('Decoding image…');
 
   try {
     inputImageData = await fileToImageData(file);
+    setStatus(colorizer ? 'Rendering on your GPU…' : 'Image decoded. Waiting for WebGPU…');
     drawImageData(elements.inputCanvas, inputImageData);
     replaceLoupeUrl('input', elements.inputCanvas.toDataURL('image/png'));
     elements.compare.classList.remove('empty');
@@ -163,8 +166,13 @@ function scheduleRender(delay = 120) {
 }
 
 async function renderImage() {
-  if (!inputImageData || !colorizer) return;
+  if (!inputImageData) return;
 
+  if (!colorizer) {
+    setStatus('Waiting for WebGPU…');
+    await colorizerReady;
+    if (!colorizer) return;
+  }
   const id = ++renderId;
   const options = currentOptions();
 
@@ -568,17 +576,58 @@ function drawHelpExample(canvas, key, value) {
 
   context.putImageData(image, 0, 0);
 }
-
 async function fileToImageData(file) {
-  const bitmap = await createImageBitmap(file);
+  if ('createImageBitmap' in window) {
+    try {
+      const bitmap = await withTimeout(createImageBitmap(file), 12_000);
+      return bitmapToImageData(bitmap);
+    } catch {
+    }
+  }
+
+  return imageElementToImageData(file);
+}
+
+async function imageElementToImageData(file) {
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+
+  try {
+    image.decoding = 'async';
+    image.src = url;
+    await withTimeout(image.decode(), 12_000);
+
+    return drawableToImageData(image, image.naturalWidth, image.naturalHeight);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function bitmapToImageData(bitmap) {
+  try {
+    return drawableToImageData(bitmap, bitmap.width, bitmap.height);
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+function drawableToImageData(drawable, width, height) {
+  if (!width || !height) throw new Error('Could not decode image dimensions.');
+
   const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext('2d', { colorSpace: 'srgb' });
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close?.();
+  context.drawImage(drawable, 0, 0);
 
   return context.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Image decode timed out. Try a smaller image or another browser.')), ms)),
+  ]);
 }
 
 function drawImageData(canvas, imageData) {
