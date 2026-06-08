@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-v1.1.7...image-colorizer-v1.1.8) - 2026-06-08
+
+### Other
+
+- Theme favicon and app logo dynamically
+- Add favicon to static and served UIs
+- Add static CPU fallback renderer
+- Split static WebGPU app into workspace crate
+- Add static WebGPU browser app
+
 ## [1.1.7](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-v1.1.6...image-colorizer-v1.1.7) - 2026-06-05
 
 ### Other
