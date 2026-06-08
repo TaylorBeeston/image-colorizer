@@ -81,6 +81,8 @@ button:disabled { opacity: 0.55; cursor: wait; }
 }
 
 h1 { margin: 0 0 0.45rem; font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -0.06em; }
+.brand { display: flex; align-items: center; gap: 0.65rem; }
+.brand-logo { width: 2.85rem; height: 2.85rem; flex: 0 0 auto; border-radius: 0.72rem; filter: drop-shadow(0 0 16px color-mix(in srgb, var(--blue) 42%, transparent)); }
 h2 { margin: 0; font-size: 1.35rem; }
 p { color: var(--muted); line-height: 1.4; }
 form { display: grid; gap: 9px; }

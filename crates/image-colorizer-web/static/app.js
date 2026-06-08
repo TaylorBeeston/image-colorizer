@@ -10,6 +10,8 @@ const elements = {
   loupe: document.querySelector('#loupe'),
   toggleLoupe: document.querySelector('#toggleLoupe'),
   openPerformanceInfo: document.querySelector('#openPerformanceInfo'),
+  appLogo: document.querySelector('#appLogo'),
+  favicon: document.querySelector('link[rel="icon"]'),
   status: document.querySelector('#status'),
   inputCanvas: document.querySelector('#inputCanvas'),
   outputCanvas: document.querySelector('#outputCanvas'),
@@ -109,6 +111,8 @@ let dragging = false;
 let loupeEnabled = false;
 let cpuFallbackShown = false;
 let schemes = [];
+const faviconState = { image: undefined, imagePromise: undefined, key: '' };
+
 
 bootstrap();
 
@@ -325,6 +329,7 @@ function syncControls() {
     const palette = parseColorscheme(elements.schemeText.value);
     renderSwatches(palette);
     applyTheme(palette);
+    updateDynamicFavicon(palette);
   } catch {
     elements.activeSchemeStrip.innerHTML = '';
     elements.swatches.innerHTML = '';
@@ -808,6 +813,68 @@ function applyTheme(colors) {
   root.setProperty('--red', red);
   root.setProperty('--line', sorted[Math.floor(sorted.length * 0.32)] || panel);
   root.setProperty('--button-text', luminance(accent) > 0.42 ? dark : light);
+}
+
+function updateDynamicFavicon(colors) {
+  const key = colors.join('|');
+  if (!colors.length || faviconState.key === key) return;
+
+  faviconState.key = key;
+  void renderDynamicFavicon(colors, key);
+}
+
+async function renderDynamicFavicon(colors, key) {
+  try {
+    const image = await loadFaviconImage();
+    if (faviconState.key !== key) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    const palette = colors.map(color => ({ rgb: hexToRgb(color).map(channel => Math.round(channel * 255)), luminance: luminance(color) })).sort((left, right) => left.luminance - right.luminance);
+
+    for (let offset = 0; offset < imageData.data.length; offset += 4) {
+      if (imageData.data[offset + 3] === 0) continue;
+
+      const value = (0.2126 * imageData.data[offset] + 0.7152 * imageData.data[offset + 1] + 0.0722 * imageData.data[offset + 2]) / 255;
+      const color = palette[Math.min(palette.length - 1, Math.round(value * (palette.length - 1)))].rgb;
+
+      imageData.data[offset] = color[0];
+      imageData.data[offset + 1] = color[1];
+      imageData.data[offset + 2] = color[2];
+    }
+
+    context.putImageData(imageData, 0, 0);
+
+    const url = canvas.toDataURL('image/png');
+    if (faviconState.key !== key) return;
+
+    elements.favicon.href = url;
+    elements.appLogo.src = url;
+  } catch {
+  }
+}
+
+function loadFaviconImage() {
+  if (faviconState.image) return Promise.resolve(faviconState.image);
+  if (faviconState.imagePromise) return faviconState.imagePromise;
+
+  faviconState.imagePromise = new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      faviconState.image = image;
+      resolve(image);
+    };
+    image.onerror = reject;
+    image.src = 'favicon.png';
+  });
+
+  return faviconState.imagePromise;
 }
 
 function luminance(hex) {
