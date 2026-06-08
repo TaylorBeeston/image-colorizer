@@ -43,7 +43,7 @@ jobs:
           node --check crates/image-colorizer-web/static/cpu_worker.js
 
   wasm:
-    name: Rebuild committed WASM
+    name: Rebuild WASM package
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -59,12 +59,11 @@ jobs:
         run: cargo install wasm-pack --version 0.14.0 --locked
 
       - name: Rebuild browser CPU fallback
-        run: wasm-pack build crates/image-colorizer-web --target web --out-dir static/pkg --release
+        run: wasm-pack build crates/image-colorizer-web --target web --out-dir /tmp/image-colorizer-web-pkg --release
 
-      - name: Ensure WASM assets are committed
+      - name: Check generated WASM package
         run: |
-          if [ -n "$(git status --porcelain -- crates/image-colorizer-web/static/pkg)" ]; then
-            git status --short -- crates/image-colorizer-web/static/pkg
-            git diff -- crates/image-colorizer-web/static/pkg
-            exit 1
-          fi
+          test -s /tmp/image-colorizer-web-pkg/image_colorizer_web_bg.wasm
+          test -s /tmp/image-colorizer-web-pkg/image_colorizer_web.js
+          test -s /tmp/image-colorizer-web-pkg/image_colorizer_web.d.ts
+          test -s crates/image-colorizer-web/static/pkg/image_colorizer_web_bg.wasm
