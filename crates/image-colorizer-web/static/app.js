@@ -388,7 +388,9 @@ async function loadRemotePreviews(items) {
 
       try {
         const text = await fetchText(item.url);
-        output.push({ ...item, text, colors: parseBase16Yaml(text) });
+        const colors = parseBase16Yaml(text);
+        if (!colors.length) continue;
+        output.push({ ...item, text: colors.join('\n'), rawText: text, colors });
       } catch {
       }
     }
@@ -770,13 +772,19 @@ function replaceLoupeUrl(kind, url) {
 function drawHelpStatus(text) {
   setStatus(text);
 }
-
 function parseBase16Yaml(text) {
   const colors = new Map();
 
   for (const line of text.split('\n')) {
-    const match = line.trim().match(/^(base[0-9A-Fa-f]{2}):\s*['"]?([0-9A-Fa-f]{6})['"]?/);
-    if (match) colors.set(match[1].toLowerCase(), `#${match[2].toLowerCase()}`);
+    const [key, rawValue] = line.trim().split(':', 2);
+    if (!key?.startsWith('base') || !rawValue) continue;
+
+    const value = rawValue.split(' #')[0].trim().replace(/^['"]|['"]$/g, '');
+
+    try {
+      colors.set(key.toLowerCase(), normalizeHex(value));
+    } catch {
+    }
   }
 
   return [...colors].sort(([left], [right]) => left.localeCompare(right)).map(([, color]) => color);
