@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - webgpu-static
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test workspace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --workspace -- --test-threads=1
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Check static JavaScript syntax
+        run: |
+          node --check crates/image-colorizer-web/static/app.js
+          node --check crates/image-colorizer-web/static/colorizer.js
+          node --check crates/image-colorizer-web/static/cpu_colorizer.js
+          node --check crates/image-colorizer-web/static/cpu_worker.js
+
+  wasm:
+    name: Rebuild committed WASM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Rebuild browser CPU fallback
+        run: wasm-pack build crates/image-colorizer-web --target web --out-dir static/pkg --release
+
+      - name: Ensure WASM assets are committed
+        run: |
+          if [ -n "$(git status --porcelain -- crates/image-colorizer-web/static/pkg)" ]; then
+            git status --short -- crates/image-colorizer-web/static/pkg
+            git diff -- crates/image-colorizer-web/static/pkg
+            exit 1
+          fi

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Colorizer Workstation</title>
+  <link rel="icon" href="/favicon.png" type="image/png" sizes="256x256">
   <style>
     :root {
       color-scheme: dark;
@@ -89,6 +90,8 @@
     }
 
     h1 { margin: 0 0 0.45rem; font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -0.06em; }
+    .brand { display: flex; align-items: center; gap: 0.65rem; }
+    .brand-logo { width: 2.85rem; height: 2.85rem; flex: 0 0 auto; border-radius: 0.72rem; filter: drop-shadow(0 0 16px color-mix(in srgb, var(--blue) 42%, transparent)); }
     h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text); }
     p { color: var(--muted); line-height: 1.4; }
 
@@ -429,7 +432,7 @@
 <body>
   <div class="app">
     <aside class="panel">
-      <h1>Image Colorizer</h1>
+      <h1 class="brand"><img id="appLogo" class="brand-logo" src="/favicon.png" alt="" width="48" height="48"><span>Image Colorizer</span></h1>
 
       <form id="form">
         <fieldset>
@@ -608,6 +611,8 @@
     const helpCopy = document.querySelector('#helpCopy');
     const helpExamples = document.querySelector('#helpExamples');
     const closeHelp = document.querySelector('#closeHelp');
+    const appLogo = document.querySelector('#appLogo');
+    const favicon = document.querySelector('link[rel="icon"]');
     const sliders = {
       blend: document.querySelector('#blend'),
       dither: document.querySelector('#dither'),
@@ -654,6 +659,8 @@
     let loupeEnabled = false;
     let dragging = false;
     let allSchemes = [];
+    const faviconState = { image: undefined, imagePromise: undefined, key: '' };
+
 
     function syncValues() {
       values.blend.textContent = sliders.blend.value;
@@ -661,8 +668,10 @@
       values.radius.textContent = sliders.radius.value;
       values.threshold.textContent = sliders.threshold.value;
       schemeDisplay.textContent = schemeName.value || 'Custom';
+      const palette = colors();
       renderSwatches();
-      applyTheme(colors());
+      applyTheme(palette);
+      updateDynamicFavicon(palette);
     }
 
     function colors() {
@@ -716,6 +725,68 @@
       root.setProperty('--red', red);
       root.setProperty('--line', sorted[Math.floor(sorted.length * 0.32)] || panel);
       root.setProperty('--button-text', luminance(accent) > 0.42 ? dark : light);
+    }
+
+    function updateDynamicFavicon(palette) {
+      const key = palette.join('|');
+      if (!palette.length || faviconState.key === key) return;
+
+      faviconState.key = key;
+      void renderDynamicFavicon(palette, key);
+    }
+
+    async function renderDynamicFavicon(palette, key) {
+      try {
+        const image = await loadFaviconImage();
+        if (faviconState.key !== key) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const sorted = palette.map(color => ({ rgb: rgb(color), luminance: luminance(color) })).sort((left, right) => left.luminance - right.luminance);
+
+        for (let offset = 0; offset < imageData.data.length; offset += 4) {
+          if (imageData.data[offset + 3] === 0) continue;
+
+          const value = (0.2126 * imageData.data[offset] + 0.7152 * imageData.data[offset + 1] + 0.0722 * imageData.data[offset + 2]) / 255;
+          const color = sorted[Math.min(sorted.length - 1, Math.round(value * (sorted.length - 1)))].rgb;
+
+          imageData.data[offset] = color[0];
+          imageData.data[offset + 1] = color[1];
+          imageData.data[offset + 2] = color[2];
+        }
+
+        context.putImageData(imageData, 0, 0);
+
+        const url = canvas.toDataURL('image/png');
+        if (faviconState.key !== key) return;
+
+        favicon.href = url;
+        appLogo.src = url;
+      } catch {
+      }
+    }
+
+    function loadFaviconImage() {
+      if (faviconState.image) return Promise.resolve(faviconState.image);
+      if (faviconState.imagePromise) return faviconState.imagePromise;
+
+      faviconState.imagePromise = new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          faviconState.image = image;
+          resolve(image);
+        };
+        image.onerror = reject;
+        image.src = '/favicon.png';
+      });
+
+      return faviconState.imagePromise;
     }
 
     function renderSwatches() {

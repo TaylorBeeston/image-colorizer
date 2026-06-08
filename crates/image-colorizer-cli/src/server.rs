@@ -20,6 +20,8 @@ use palette::{color_difference::ImprovedCiede2000, FromColor, Lab};
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
+const FAVICON_PNG: &[u8] = include_bytes!("favicon.png");
+
 struct AppState {
     session: Mutex<Session>,
     defaults: WebDefaults,
@@ -109,6 +111,7 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/favicon.png", get(favicon))
         .route("/colorize", post(colorize_upload))
         .route("/colorschemes", get(list_colorschemes))
         .route("/colorschemes/:name", get(fetch_colorscheme))
@@ -127,6 +130,14 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
 
 async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     Html(render_index(&state.defaults))
+}
+
+async fn favicon() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, HeaderValue::from_static("image/png"))
+        .body(Body::from(FAVICON_PNG))
+        .expect("favicon response is valid")
 }
 
 async fn colorize_upload(

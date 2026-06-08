@@ -1,0 +1,22 @@
+[package]
+name = "image-colorizer-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Static client-only WebGPU app for Image Colorizer"
+repository.workspace = true
+license.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
+publish = false
+include = ["src/**", "static/**", "Cargo.toml", "../../README.md"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+
