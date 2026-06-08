@@ -40,6 +40,7 @@ export class WebGpuColorizer {
   }
 
   constructor(device, pipelines) {
+    this.mode = 'gpu';
     this.device = device;
     this.queue = device.queue;
     this.pipelines = pipelines;

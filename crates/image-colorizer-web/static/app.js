@@ -9,6 +9,7 @@ const elements = {
   divider: document.querySelector('#divider'),
   loupe: document.querySelector('#loupe'),
   toggleLoupe: document.querySelector('#toggleLoupe'),
+  openPerformanceInfo: document.querySelector('#openPerformanceInfo'),
   status: document.querySelector('#status'),
   inputCanvas: document.querySelector('#inputCanvas'),
   outputCanvas: document.querySelector('#outputCanvas'),
@@ -36,6 +37,10 @@ const elements = {
   helpCopy: document.querySelector('#helpCopy'),
   helpExamples: document.querySelector('#helpExamples'),
   closeHelp: document.querySelector('#closeHelp'),
+  webGpuModal: document.querySelector('#webGpuModal'),
+  closeWebGpu: document.querySelector('#closeWebGpu'),
+  openGpuExplain: document.querySelector('#openGpuExplain'),
+  openGpuBenchmark: document.querySelector('#openGpuBenchmark'),
   fallbackModal: document.querySelector('#fallbackModal'),
   closeFallback: document.querySelector('#closeFallback'),
   cpuProgress: document.querySelector('#cpuProgress'),
@@ -173,6 +178,16 @@ function bindEvents() {
   elements.compare.addEventListener('pointerenter', () => { if (loupeEnabled) elements.loupe.classList.add('on'); });
   elements.closeHelp.addEventListener('click', () => elements.helpModal.close());
   elements.helpModal.addEventListener('click', event => { if (event.target === elements.helpModal) elements.helpModal.close(); });
+  elements.openPerformanceInfo.addEventListener('click', openPerformanceInfo);
+  elements.closeWebGpu.addEventListener('click', () => elements.webGpuModal.close());
+  elements.openGpuExplain.addEventListener('click', () => {
+    elements.webGpuModal.close();
+    elements.cpuExplainModal.showModal();
+  });
+  elements.openGpuBenchmark.addEventListener('click', () => {
+    elements.webGpuModal.close();
+    elements.benchmarkModal.showModal();
+  });
   elements.closeFallback.addEventListener('click', () => elements.fallbackModal.close());
   elements.openCpuExplain.addEventListener('click', () => {
     elements.fallbackModal.close();
@@ -190,11 +205,22 @@ function bindEvents() {
   elements.closeDeepCpuExplain.addEventListener('click', () => elements.deepCpuExplainModal.close());
   elements.closeBenchmark.addEventListener('click', () => elements.benchmarkModal.close());
   elements.deepCpuExplainModal.addEventListener('click', event => { if (event.target === elements.deepCpuExplainModal) elements.deepCpuExplainModal.close(); });
+  elements.webGpuModal.addEventListener('click', event => { if (event.target === elements.webGpuModal) elements.webGpuModal.close(); });
   elements.benchmarkModal.addEventListener('click', event => { if (event.target === elements.benchmarkModal) elements.benchmarkModal.close(); });
   elements.fallbackModal.addEventListener('click', event => { if (event.target === elements.fallbackModal) elements.fallbackModal.close(); });
   elements.cpuExplainModal.addEventListener('click', event => { if (event.target === elements.cpuExplainModal) elements.cpuExplainModal.close(); });
 
+
   for (const button of document.querySelectorAll('[data-help]')) button.addEventListener('click', () => openHelp(button.dataset.help));
+}
+
+function openPerformanceInfo() {
+  if (colorizer?.mode === 'cpu') {
+    elements.fallbackModal.showModal();
+    return;
+  }
+
+  elements.webGpuModal.showModal();
 }
 
 async function loadImage() {
