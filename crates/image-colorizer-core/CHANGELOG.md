@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.8](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-core-v1.1.7...image-colorizer-core-v1.1.8) - 2026-06-08
+
+### Other
+
+- Add static CPU fallback renderer
+- Split static WebGPU app into workspace crate
+- Add static WebGPU browser app
+
 ## [1.1.6](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-core-v1.1.5...image-colorizer-core-v1.1.6) - 2026-06-05
 
 ### Other
