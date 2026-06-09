@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.9](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-v1.1.8...image-colorizer-v1.1.9) - 2026-06-09
+
+### Other
+
+- Polish web demos for release
+
 ## [1.1.8](https://github.com/TaylorBeeston/image-colorizer/compare/image-colorizer-v1.1.7...image-colorizer-v1.1.8) - 2026-06-08
 
 ### Other
