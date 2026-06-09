@@ -19,12 +19,11 @@ export class WebGpuColorizer {
 
     if (!adapter) throw new Error(webGpuUnavailableMessage(firstError.message || 'This browser could not find a usable graphics device.'));
 
-    const device = await withTimeout(adapter.requestDevice({
-      requiredLimits: {
-        maxBufferSize: adapter.limits.maxBufferSize,
-        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-      },
-    }), WEBGPU_START_TIMEOUT_MS, webGpuUnavailableMessage('This browser could not start the graphics renderer.'));
+    const device = await withTimeout(
+      adapter.requestDevice(),
+      WEBGPU_START_TIMEOUT_MS,
+      webGpuUnavailableMessage('This browser could not start the graphics renderer.'),
+    );
     const [pass1Source, spatialSource] = await Promise.all([
       fetchText('shaders/colorize_pass1.wgsl'),
       fetchText('shaders/spatial_average.wgsl'),
@@ -32,11 +31,13 @@ export class WebGpuColorizer {
     const pass1Module = device.createShaderModule({ label: 'Colorize pass 1', code: pass1Source });
     const spatialModule = device.createShaderModule({ label: 'Spatial average', code: spatialSource });
 
-    return new WebGpuColorizer(device, {
-      pass1: device.createComputePipeline({ label: 'Colorize pass 1', layout: 'auto', compute: { module: pass1Module, entryPoint: 'main' } }),
-      horizontal: device.createComputePipeline({ label: 'Horizontal spatial average', layout: 'auto', compute: { module: spatialModule, entryPoint: 'horizontal' } }),
-      vertical: device.createComputePipeline({ label: 'Vertical final', layout: 'auto', compute: { module: spatialModule, entryPoint: 'vertical_final' } }),
-    });
+    const [pass1, horizontal, vertical] = await Promise.all([
+      device.createComputePipelineAsync({ label: 'Colorize pass 1', layout: 'auto', compute: { module: pass1Module, entryPoint: 'main' } }),
+      device.createComputePipelineAsync({ label: 'Horizontal spatial average', layout: 'auto', compute: { module: spatialModule, entryPoint: 'horizontal' } }),
+      device.createComputePipelineAsync({ label: 'Vertical final', layout: 'auto', compute: { module: spatialModule, entryPoint: 'vertical_final' } }),
+    ]);
+
+    return new WebGpuColorizer(device, { pass1, horizontal, vertical });
   }
 
   constructor(device, pipelines) {
@@ -91,6 +92,14 @@ export class WebGpuColorizer {
     this.destroyBuffers();
 
     const pixels = width * height;
+    const maxBufferSize = this.device.limits?.maxBufferSize || Number.MAX_SAFE_INTEGER;
+    const maxStorageBufferBindingSize = this.device.limits?.maxStorageBufferBindingSize || Number.MAX_SAFE_INTEGER;
+    const largestStorageBuffer = pixels * WORKING_STRIDE;
+
+    if (largestStorageBuffer > maxBufferSize || largestStorageBuffer > maxStorageBufferBindingSize) {
+      throw new Error(`Image is too large for this browser's WebGPU limits. Try a smaller image or the local CLI.`);
+    }
+
     const input = this.storageBuffer(pixels * PIXEL_STRIDE, GPUBufferUsage.COPY_DST);
     const working = this.storageBuffer(pixels * WORKING_STRIDE, 0);
     const horizontal = this.storageBuffer(pixels * PIXEL_STRIDE, 0);
@@ -111,11 +120,15 @@ export class WebGpuColorizer {
     this.buffers = { input, working, horizontal, output, read, params };
     this.passBindGroup = undefined;
     this.createSpatialBindGroups();
+    this.createPassBindGroup();
   }
 
   ensurePalette(palette) {
     const key = palette.map(([l, a, b]) => `${l.toFixed(4)},${a.toFixed(4)},${b.toFixed(4)}`).join('|');
-    if (this.paletteBuffer && key === this.paletteKey) return;
+    if (this.paletteBuffer && key === this.paletteKey) {
+      this.createPassBindGroup();
+      return;
+    }
 
     this.paletteBuffer?.destroy();
     this.paletteKey = key;

@@ -1,6 +1,6 @@
 use crate::types::ColorizerConfig;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use image::{DynamicImage, GenericImageView};
 use wgpu::util::DeviceExt;
 
@@ -110,12 +110,13 @@ impl GpuColorizer {
             .await
             .context("Failed to find an appropriate adapter")?;
 
+        let limits = adapter.limits();
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    limits,
                 },
                 None,
             )
@@ -197,6 +198,15 @@ impl GpuColorizer {
         self.spatial_averaging_radius = spatial_averaging_radius;
     }
 
+    pub fn max_colorizable_pixels(&self) -> u64 {
+        let limits = self.device.limits();
+        let storage_limit = limits
+            .max_buffer_size
+            .min(limits.max_storage_buffer_binding_size as wgpu::BufferAddress);
+
+        storage_limit / std::mem::size_of::<WorkingPixel>() as u64
+    }
+
     /// Colorize an image.
     pub async fn colorize(&mut self, img: &DynamicImage) -> Result<RenderedImage> {
         self.colorize_with_progress(img, |_| {}).await
@@ -210,7 +220,7 @@ impl GpuColorizer {
     ) -> Result<RenderedImage> {
         let (width, height) = img.dimensions();
 
-        self.ensure_frame_buffers(width, height);
+        self.ensure_frame_buffers(width, height)?;
         self.upload_input(img);
 
         let params = Params {
@@ -295,16 +305,18 @@ impl GpuColorizer {
         self.output_buffers.push(data);
     }
 
-    fn ensure_frame_buffers(&mut self, width: u32, height: u32) {
+    fn ensure_frame_buffers(&mut self, width: u32, height: u32) -> Result<()> {
         if self
             .frame_buffers
             .as_ref()
             .is_some_and(|buffers| buffers.width == width && buffers.height == height)
         {
-            return;
+            return Ok(());
         }
 
-        self.frame_buffers = Some(FrameBuffers::new(self, width, height));
+        self.frame_buffers = Some(FrameBuffers::new(self, width, height)?);
+
+        Ok(())
     }
 
     fn upload_input(&mut self, img: &DynamicImage) {
@@ -340,7 +352,8 @@ impl GpuColorizer {
 }
 
 impl FrameBuffers {
-    fn new(colorizer: &GpuColorizer, width: u32, height: u32) -> Self {
+    fn new(colorizer: &GpuColorizer, width: u32, height: u32) -> Result<Self> {
+        validate_frame_buffers(&colorizer.device, width, height)?;
         let input_buffer = create_storage_buffer::<ColorizedPixel>(
             &colorizer.device,
             width,
@@ -452,7 +465,7 @@ impl FrameBuffers {
                     ],
                 });
 
-        Self {
+        Ok(Self {
             width,
             height,
             input_buffer,
@@ -462,7 +475,7 @@ impl FrameBuffers {
             horizontal_bind_group,
             vertical_final_bind_group,
             params_buffer,
-        }
+        })
     }
 }
 
@@ -536,6 +549,37 @@ fn create_color_palette_buffer(device: &wgpu::Device, config: &ColorizerConfig) 
         contents: bytemuck::cast_slice(&color_palette),
         usage: wgpu::BufferUsages::STORAGE,
     })
+}
+
+fn validate_frame_buffers(device: &wgpu::Device, width: u32, height: u32) -> Result<()> {
+    let limits = device.limits();
+    let max_buffer_size = limits.max_buffer_size;
+    let max_storage_binding_size = limits.max_storage_buffer_binding_size as wgpu::BufferAddress;
+    let storage_limit = max_buffer_size.min(max_storage_binding_size);
+    let largest_storage_buffer = frame_buffer_size::<WorkingPixel>(width, height);
+    let staging_buffer = frame_buffer_size::<u32>(width, height);
+
+    if largest_storage_buffer > storage_limit {
+        bail!(
+            "Image dimensions {}x{} need a {} byte GPU storage binding, but this device only allows {} bytes. Resize the image smaller or use a GPU with a larger storage-buffer binding limit.",
+            width,
+            height,
+            largest_storage_buffer,
+            storage_limit
+        );
+    }
+
+    if staging_buffer > max_buffer_size {
+        bail!(
+            "Image dimensions {}x{} need a {} byte GPU readback buffer, but this device only allows {} bytes. Resize the image smaller or use a GPU with a larger buffer limit.",
+            width,
+            height,
+            staging_buffer,
+            max_buffer_size
+        );
+    }
+
+    Ok(())
 }
 
 fn create_storage_buffer<T>(

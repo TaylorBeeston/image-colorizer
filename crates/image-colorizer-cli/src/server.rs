@@ -13,6 +13,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::{stream, StreamExt};
 use image::codecs::png::PngEncoder;
+use image::imageops::FilterType;
 use image::{ColorType, DynamicImage, ImageEncoder};
 use image_colorizer_core::utils::{hex_to_rgb, interpolate_color};
 use image_colorizer_core::{ColorizerConfig, GpuColorizer, RenderedImage};
@@ -21,6 +22,8 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 const FAVICON_PNG: &[u8] = include_bytes!("favicon.png");
+const WEB_PREVIEW_MAX_PIXELS: u64 = 8_000_000;
+const SAMPLE_WEBP: &[u8] = include_bytes!("sample.webp");
 
 struct AppState {
     session: Mutex<Session>,
@@ -112,6 +115,7 @@ pub async fn serve(config: &ServeConfig) -> Result<(), AppError> {
     let app = Router::new()
         .route("/", get(index))
         .route("/favicon.png", get(favicon))
+        .route("/sample.webp", get(sample))
         .route("/colorize", post(colorize_upload))
         .route("/colorschemes", get(list_colorschemes))
         .route("/colorschemes/:name", get(fetch_colorscheme))
@@ -140,6 +144,14 @@ async fn favicon() -> Response<Body> {
         .expect("favicon response is valid")
 }
 
+async fn sample() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, HeaderValue::from_static("image/webp"))
+        .body(Body::from(SAMPLE_WEBP))
+        .expect("sample response is valid")
+}
+
 async fn colorize_upload(
     State(state): State<Arc<AppState>>,
     multipart: Multipart,
@@ -153,8 +165,10 @@ async fn colorize_upload(
     let colorizer_config = request.to_colorizer_config()?;
     let mut session = state.session.lock().await;
 
+    let max_preview_pixels = WEB_PREVIEW_MAX_PIXELS.min(session.colorizer.max_colorizable_pixels());
+
     if let Some(image) = request.image {
-        session.image = Some(Arc::new(image));
+        session.image = Some(Arc::new(resize_for_web_preview(image, max_preview_pixels)));
     }
 
     if palette_key == session.palette_key {
@@ -670,6 +684,19 @@ fn interpolate_colors(mut colors: Vec<Lab>, threshold: f32) -> Vec<Lab> {
     interpolated
 }
 
+fn resize_for_web_preview(image: DynamicImage, max_pixels: u64) -> DynamicImage {
+    let pixels = image.width() as u64 * image.height() as u64;
+    if pixels <= max_pixels {
+        return image;
+    }
+
+    let scale = (max_pixels as f64 / pixels as f64).sqrt();
+    let width = ((image.width() as f64 * scale).round() as u32).max(1);
+    let height = ((image.height() as f64 * scale).round() as u32).max(1);
+
+    image.resize(width, height, FilterType::Lanczos3)
+}
+
 fn encode_png(image: &RenderedImage) -> Result<Vec<u8>, image::ImageError> {
     let mut png = Vec::new();
     let encoder = PngEncoder::new(&mut png);
@@ -847,5 +874,30 @@ base0A: "aaaaaa"
         .unwrap();
 
         assert_eq!(colors, ["#7e9cd8", "#98bb6c"]);
+    }
+
+    #[test]
+    fn web_preview_resize_keeps_small_images_unchanged() {
+        let image = DynamicImage::new_rgb8(100, 100);
+        let resized = resize_for_web_preview(image, WEB_PREVIEW_MAX_PIXELS);
+
+        assert_eq!((resized.width(), resized.height()), (100, 100));
+    }
+
+    #[test]
+    fn web_preview_resize_caps_large_images() {
+        let image = DynamicImage::new_rgb8(3840, 1920);
+        let resized = resize_for_web_preview(image, 5_000_000);
+
+        assert!(resized.width() as u64 * resized.height() as u64 <= 5_000_000);
+        assert_eq!(resized.width() * 1920, resized.height() * 3840);
+    }
+
+    #[test]
+    fn web_preview_resize_allows_super_ultrawide_1440p() {
+        let image = DynamicImage::new_rgb8(5120, 1440);
+        let resized = resize_for_web_preview(image, WEB_PREVIEW_MAX_PIXELS);
+
+        assert_eq!((resized.width(), resized.height()), (5120, 1440));
     }
 }

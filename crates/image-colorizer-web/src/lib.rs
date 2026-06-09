@@ -227,10 +227,10 @@ fn hex_to_rgb(hex: &str) -> Result<[f32; 3], JsValue> {
 
 fn closest_color(color: [f32; 3], palette: &[[f32; 3]]) -> [f32; 3] {
     let mut closest = palette[0];
-    let mut min_distance = distance(color, closest);
+    let mut min_distance = chroma_distance(color, closest);
 
     for &candidate in &palette[1..] {
-        let current_distance = distance(color, candidate);
+        let current_distance = chroma_distance(color, candidate);
 
         if current_distance < min_distance {
             min_distance = current_distance;
@@ -364,12 +364,11 @@ fn lab_f(value: f32) -> f32 {
     }
 }
 
-fn distance(left: [f32; 3], right: [f32; 3]) -> f32 {
-    let l = left[0] - right[0];
+fn chroma_distance(left: [f32; 3], right: [f32; 3]) -> f32 {
     let a = left[1] - right[1];
     let b = left[2] - right[2];
 
-    (l * l + a * a + b * b).sqrt()
+    (a * a + b * b).sqrt()
 }
 
 fn ciede2000(left: [f32; 3], right: [f32; 3]) -> f32 {
@@ -461,4 +460,26 @@ fn deg_to_rad(degrees: f32) -> f32 {
 
 fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chroma_distance, closest_color};
+
+    #[test]
+    fn closest_color_ignores_lightness() {
+        let source = [15.0, 42.0, -36.0];
+        let dark_gray = [14.0, 0.0, 0.0];
+        let bright_chroma_match = [82.0, 42.0, -36.0];
+
+        assert_eq!(
+            closest_color(source, &[dark_gray, bright_chroma_match]),
+            bright_chroma_match
+        );
+    }
+
+    #[test]
+    fn chroma_distance_ignores_lightness() {
+        assert_eq!(chroma_distance([12.0, 3.0, 4.0], [98.0, 3.0, 4.0]), 0.0);
+    }
 }

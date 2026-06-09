@@ -111,13 +111,17 @@ fn color_palette_value(index: u32) -> vec3<f32> {
     return vec3<f32>(color_palette[index].r, color_palette[index].g, color_palette[index].b);
 }
 
+fn chroma_distance(left: vec3<f32>, right: vec3<f32>) -> f32 {
+    return distance(left.yz, right.yz);
+}
+
 fn find_closest_color(lab: vec3<f32>) -> vec3<f32> {
     var closest_color = color_palette_value(0u);
-    var min_distance = distance(lab, closest_color);
+    var min_distance = chroma_distance(lab, closest_color);
 
     for (var i = 1u; i < arrayLength(&color_palette); i = i + 1u) {
         let current_color = color_palette_value(i);
-        let current_distance = distance(lab, current_color);
+        let current_distance = chroma_distance(lab, current_color);
 
         if current_distance < min_distance {
             min_distance = current_distance;

@@ -39,7 +39,7 @@
 
     button, input, textarea { font: inherit; }
 
-    button, a.download {
+    button, a.download, a.button {
       border: 0;
       border-radius: 999px;
       padding: 0.68rem 0.92rem;
@@ -51,8 +51,8 @@
       box-shadow: 0 8px 24px #0005;
     }
 
-    button.secondary { background: var(--green); }
-    button.ghost { background: color-mix(in srgb, var(--panel-2) 82%, var(--text) 18%); color: var(--text); }
+    button.secondary, a.button.secondary { background: var(--green); }
+    button.ghost, a.button.ghost { background: color-mix(in srgb, var(--panel-2) 82%, var(--text) 18%); color: var(--text); }
     button.danger { background: var(--red); }
     button:disabled { opacity: 0.55; cursor: wait; }
 
@@ -85,13 +85,36 @@
       min-height: calc(100vh - 28px);
       padding: 22px;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
       gap: 16px;
     }
 
     h1 { margin: 0 0 0.45rem; font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -0.06em; }
     .brand { display: flex; align-items: center; gap: 0.65rem; }
     .brand-logo { width: 2.85rem; height: 2.85rem; flex: 0 0 auto; border-radius: 0.72rem; filter: drop-shadow(0 0 16px color-mix(in srgb, var(--blue) 42%, transparent)); }
+
+    .hero-copy {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0;
+      padding: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 70%, var(--blue) 30%);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--blue) 20%, transparent), transparent 18rem),
+        var(--panel-2);
+    }
+
+    .hero-copy h2 {
+      margin: 0;
+      font-size: clamp(1.55rem, 2.6vw, 2.35rem);
+      letter-spacing: -0.055em;
+    }
+
+    .hero-copy p { margin: 0; }
+    .eyebrow, .trust-line { color: var(--quiet); font-size: 0.78rem; font-weight: 800; letter-spacing: 0.11em; text-transform: uppercase; }
+    .trust-line { letter-spacing: 0.04em; text-transform: none; }
+    .cta-row { display: flex; flex-wrap: wrap; gap: 8px; }
     h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--text); }
     p { color: var(--muted); line-height: 1.4; }
 
@@ -372,6 +395,43 @@
     .loupe.on { display: block; }
     .small { font-size: 0.85rem; color: var(--quiet); }
 
+    .sample-gallery {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: color-mix(in srgb, var(--panel-2) 82%, transparent);
+    }
+
+    .gallery-head { display: grid; gap: 4px; }
+    .gallery-head h2, .gallery-head p { margin: 0; }
+    .gallery-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; min-width: 0; }
+    .gallery-card { position: relative; display: grid; gap: 6px; min-width: 0; padding: 0; color: inherit; text-align: left; background: transparent; border: 0; box-shadow: none; }
+    button.gallery-card { cursor: pointer; }
+    button.gallery-card:hover img, button.gallery-card:focus-visible img, .gallery-card.selected img { border-color: var(--blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 42%, transparent); }
+    .gallery-card img { display: block; width: 100%; height: auto; border: 1px solid color-mix(in srgb, var(--line) 78%, var(--text) 22%); border-radius: 14px; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--blue) 20%, transparent), var(--bg)); }
+    .gallery-card strong { min-width: 0; overflow: hidden; color: var(--muted); font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
+    .gallery-card.selected strong { color: var(--text); }
+    .gallery-card.queued img, .gallery-card.loading img { opacity: 0.38; }
+    .gallery-card.loading::after {
+      content: "";
+      position: absolute;
+      top: calc(50% - 18px);
+      left: calc(50% - 18px);
+      width: 36px;
+      height: 36px;
+      border: 3px solid color-mix(in srgb, var(--text) 20%, transparent);
+      border-top-color: var(--blue);
+      border-radius: 999px;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(1turn); }
+    }
+
     dialog {
       width: min(760px, calc(100vw - 32px));
       color: var(--text);
@@ -415,6 +475,7 @@
       main.panel { min-height: 72vh; padding: 14px; }
       .compare { min-height: 420px; }
       .scheme-modal-grid { grid-template-columns: 1fr; }
+      .gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 560px) {
@@ -425,6 +486,7 @@
       .scheme-browser { grid-template-columns: 1fr; }
       .example-grid { grid-template-columns: 1fr; }
       .toolbar { align-items: stretch; }
+      .gallery-grid { grid-template-columns: 1fr; }
       .toolbar .row, .toolbar a, .toolbar button { width: 100%; justify-content: center; text-align: center; }
     }
   </style>
@@ -433,14 +495,21 @@
   <div class="app">
     <aside class="panel">
       <h1 class="brand"><img id="appLogo" class="brand-logo" src="/favicon.png" alt="" width="48" height="48"><span>Image Colorizer</span></h1>
+      <section class="hero-copy" aria-labelledby="heroTitle">
+        <p class="eyebrow">Theme-aware wallpaper recoloring</p>
+        <h2 id="heroTitle">Make any wallpaper match your colorscheme</h2>
+        <p>Recolor images to Catppuccin, Nord, Kanagawa, Gruvbox, or your own palette using the native GPU renderer behind this local CLI server.</p>
+        <div class="cta-row">
+          <button id="trySample" type="button">Try sample</button>
+          <button id="uploadImage" class="secondary" type="button">Upload image</button>
+          <input id="file" name="image" type="file" accept="image/*" hidden>
+          <a class="button ghost" href="https://github.com/TaylorBeeston/image-colorizer">GitHub</a>
+          <a class="button ghost" href="https://aur.archlinux.org/packages/image-colorizer">AUR</a>
+        </div>
+        <p class="trust-line">Runs on this local server. Your images stay on your machine.</p>
+      </section>
 
       <form id="form">
-        <fieldset>
-          <legend>Source</legend>
-          <input id="file" name="image" type="file" accept="image/*">
-          <p class="hint">Processed locally by this app.</p>
-        </fieldset>
-
         <fieldset>
           <legend>Parameters</legend>
 
@@ -499,7 +568,7 @@
 
     <main class="panel">
       <div class="toolbar">
-        <p id="status" class="status">Ready.</p>
+        <p id="status" class="status">Starting…</p>
         <div class="row">
           <button id="toggleLoupe" class="ghost" type="button">Loupe: off</button>
           <a id="download" class="download" hidden>Download result</a>
@@ -515,6 +584,14 @@
       </section>
 
       <p class="small">Drag through the preview to compare before and after. Turn on the loupe to inspect pixels.</p>
+
+      <section class="sample-gallery" aria-label="Sample colorized wallpapers">
+        <div class="gallery-head">
+          <h2>See the same image snapped to popular palettes</h2>
+          <p class="small">Original plus live-rendered Kanagawa, Catppuccin Mocha, Nord, and Gruvbox examples.</p>
+        </div>
+        <div id="gallery" class="gallery-grid" aria-live="polite"></div>
+      </section>
     </main>
   </div>
 
@@ -581,6 +658,8 @@
   <script>
     const form = document.querySelector('#form');
     const file = document.querySelector('#file');
+    const trySample = document.querySelector('#trySample');
+    const uploadImage = document.querySelector('#uploadImage');
     const compare = document.querySelector('#compare');
     const afterLayer = document.querySelector('#afterLayer');
     const schemeBrowser = document.querySelector('#schemeBrowser');
@@ -599,12 +678,20 @@
     const download = document.querySelector('#download');
     const saveConfig = document.querySelector('#saveConfig');
     const saveColorscheme = document.querySelector('#saveColorscheme');
+    const gallery = document.querySelector('#gallery');
     const schemeText = document.querySelector('#schemeText');
     const schemeName = document.querySelector('#schemeName');
     const swatches = document.querySelector('#swatches');
     const newColor = document.querySelector('#newColor');
     const addColor = document.querySelector('#addColor');
     const sortColors = document.querySelector('#sortColors');
+    const KANAGAWA = ['#16161D', '#181820', '#1a1a22', '#1F1F28', '#2A2A37', '#363646', '#54546D', '#223249', '#2D4F67', '#2B3328', '#49443C', '#43242B', '#252535', '#76946A', '#C34043', '#DCA561', '#E82424', '#FF9E3B', '#6A9589', '#658594', '#C8C093', '#DCD7BA', '#727169', '#957FB8', '#b8b4d0', '#7E9CD8', '#938AA9', '#9CABCA', '#7FB4CA', '#A3D4D5', '#7AA89F', '#98BB6C', '#938056', '#C0A36E', '#E6C384', '#D27E99', '#E46876', '#FF5D62', '#FFA066', '#717C7C', '#0d0c0c', '#12120f', '#1D1C19', '#181616', '#282727', '#393836', '#625e5a', '#c5c9c5', '#87a987', '#8a9a7b', '#a292a3', '#b6927b', '#b98d7b', '#a6a69c', '#9e9b93', '#7a8382', '#8ba4b0', '#8992a7', '#c4746e', '#8ea4a2', '#737c73', '#949fb5', '#c4b28a', '#545464', '#43436c', '#dcd7ba', '#716e61', '#8a8980', '#d5cea3', '#dcd5ac', '#e5ddb0', '#f2ecbc', '#e7dba0', '#e4d794', '#a09cac', '#766b90', '#c9cbd1', '#624c83', '#c7d7e0', '#b5cbd2', '#9fb5c9', '#4d699b', '#5d57a3', '#6f894e', '#6e915f', '#b7d0ae', '#b35b79', '#cc6d00', '#e98a00', '#77713f', '#836f4a', '#de9800', '#f9d791', '#c84053', '#d7474b', '#e82424', '#d9a594', '#597b75', '#5e857a', '#4e8ca2', '#6693bf', '#5a7785', '#d7e3d8'];
+    const FEATURED_SCHEMES = [
+      { name: 'kanagawa', colors: KANAGAWA },
+      { name: 'catppuccin-mocha', colors: ['#f5e0dc', '#f2cdcd', '#f5c2e7', '#cba6f7', '#f38ba8', '#eba0ac', '#fab387', '#f9e2af', '#a6e3a1', '#94e2d5', '#89dceb', '#74c7ec', '#89b4fa', '#b4befe', '#cdd6f4', '#bac2de', '#a6adc8', '#9399b2', '#7f849c', '#6c7086', '#585b70', '#45475a', '#313244', '#1e1e2e', '#181825', '#11111b'] },
+      { name: 'nord', colors: ['#2e3440', '#3b4252', '#434c5e', '#4c566a', '#d8dee9', '#e5e9f0', '#eceff4', '#8fbcbb', '#88c0d0', '#81a1c1', '#5e81ac', '#bf616a', '#d08770', '#ebcb8b', '#a3be8c', '#b48ead'] },
+      { name: 'gruvbox-dark-hard', colors: ['#1d2021', '#3c3836', '#504945', '#665c54', '#bdae93', '#d5c4a1', '#ebdbb2', '#fbf1c7', '#fe8019', '#fabd2f', '#b8bb26', '#8ec07c', '#83a598', '#d3869b', '#d65d0e'] },
+    ];
     const interpolate = document.querySelector('#interpolate');
     const helpModal = document.querySelector('#helpModal');
     const helpTitle = document.querySelector('#helpTitle');
@@ -660,6 +747,10 @@
     let dragging = false;
     let allSchemes = [];
     const faviconState = { image: undefined, imagePromise: undefined, key: '' };
+    let currentImageFile;
+    let galleryToken = 0;
+    let galleryKey = '';
+    let galleryUrls = [];
 
 
     function syncValues() {
@@ -670,10 +761,17 @@
       schemeDisplay.textContent = schemeName.value || 'Custom';
       const palette = colors();
       renderSwatches();
+      updateSelectedGalleryScheme(schemeName.value || 'Custom');
       applyTheme(palette);
       updateDynamicFavicon(palette);
     }
 
+
+    function updateSelectedGalleryScheme(name) {
+      for (const card of gallery.querySelectorAll('[data-scheme]')) {
+        card.classList.toggle('selected', card.dataset.scheme === name);
+      }
+    }
     function colors() {
       return schemeText.value.split('\n')
         .map(line => line.split('//')[0].trim())
@@ -864,37 +962,49 @@
       schedulePreview();
     }
 
-    function formData(includeImage) {
+    function formData(includeImage, scheme = currentScheme()) {
       const data = new FormData();
-      if (includeImage && file.files[0]) data.append('image', file.files[0]);
+      if (includeImage && currentImageFile) data.append('image', currentImageFile);
       data.append('blend_factor', sliders.blend.value);
       data.append('dither_amount', sliders.dither.value);
       data.append('spatial_averaging_radius', sliders.radius.value);
       data.append('interpolation_threshold', sliders.threshold.value);
       data.append('interpolate_colors', interpolate.checked ? 'true' : 'false');
-      data.append('colorscheme_name', schemeName.value);
-      data.append('colorscheme_text', schemeText.value);
+      data.append('colorscheme_name', scheme.name);
+      data.append('colorscheme_text', scheme.text);
       return data;
     }
 
+    function currentScheme() {
+      return { name: schemeName.value, text: schemeText.value };
+    }
+
+    async function colorizeBlob(includeImage = false, scheme = currentScheme()) {
+      const response = await fetch('/colorize', { method: 'POST', body: formData(includeImage, scheme) });
+      if (!response.ok) throw new Error(await response.text());
+      return response.blob();
+    }
+
     async function renderPreview(includeImage = false) {
-      if (!file.files.length && includeImage) return;
+      if (!currentImageFile) return;
+
       const id = ++requestId;
       status.className = 'status';
       status.textContent = 'Rendering…';
+
       try {
-        const response = await fetch('/colorize', { method: 'POST', body: formData(includeImage) });
-        if (!response.ok) throw new Error(await response.text());
+        const blob = await colorizeBlob(includeImage);
         if (id !== requestId) return;
-        const blob = await response.blob();
+
         if (outputUrl) URL.revokeObjectURL(outputUrl);
         outputUrl = URL.createObjectURL(blob);
         outputPreview.src = outputUrl;
         download.href = outputUrl;
-        download.download = file.files[0]?.name?.replace(/\.[^.]*$/, '_colorized.png') || 'colorized.png';
+        download.download = currentImageFile.name.replace(/\.[^.]*$/, '_colorized.png');
         download.hidden = false;
         compare.classList.remove('empty');
         status.textContent = 'Rendered.';
+        renderGallery();
       } catch (error) {
         if (id !== requestId) return;
         status.className = 'status error';
@@ -906,6 +1016,98 @@
       syncValues();
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => renderPreview(false), 120);
+    }
+
+    async function renderGallery() {
+      if (!currentImageFile) return;
+
+      const key = `${currentImageFile.name}:${currentImageFile.size}:${sliders.blend.value}:${sliders.dither.value}:${sliders.radius.value}:${sliders.threshold.value}:${interpolate.checked}`;
+      if (galleryKey === key) {
+        updateSelectedGalleryScheme(schemeName.value || 'Custom');
+        return;
+      }
+
+      const token = ++galleryToken;
+      clearGalleryUrls();
+      gallery.innerHTML = '';
+      gallery.append(createGalleryCard('Original', inputUrl));
+
+      const cards = new Map();
+      for (const scheme of FEATURED_SCHEMES) {
+        const card = createGalleryCard(scheme.name, undefined, scheme.name);
+        cards.set(scheme.name, card);
+        gallery.append(card);
+      }
+
+      updateSelectedGalleryScheme(schemeName.value || 'Custom');
+
+      for (const scheme of FEATURED_SCHEMES) {
+        if (token !== galleryToken) return;
+
+        const card = cards.get(scheme.name);
+        card.classList.add('loading');
+
+        try {
+          const blob = await colorizeBlob(false, {
+            name: scheme.name,
+            text: scheme.colors.join('\n'),
+          });
+
+          if (token !== galleryToken) return;
+
+          const url = URL.createObjectURL(blob);
+          galleryUrls.push(url);
+          card.querySelector('img').src = url;
+          card.disabled = false;
+          card.classList.remove('queued', 'loading');
+        } catch (error) {
+          if (token !== galleryToken) return;
+          card.classList.remove('loading');
+          card.querySelector('strong').textContent = `${scheme.name} failed`;
+          console.warn(error);
+        }
+      }
+
+      galleryKey = key;
+    }
+
+    function createGalleryCard(name, url, schemeName) {
+      const card = document.createElement(schemeName ? 'button' : 'article');
+      const image = document.createElement('img');
+      const label = document.createElement('strong');
+
+      card.className = 'gallery-card';
+      label.textContent = name;
+
+      if (schemeName) {
+        card.type = 'button';
+        card.dataset.scheme = schemeName;
+        card.disabled = true;
+        card.addEventListener('click', () => selectGalleryScheme(schemeName));
+      }
+
+      if (url) image.src = url;
+      else card.classList.add('queued');
+
+      image.alt = `${name} preview`;
+      card.append(image, label);
+
+      return card;
+    }
+
+    function selectGalleryScheme(name) {
+      const scheme = FEATURED_SCHEMES.find(scheme => scheme.name === name);
+      if (!scheme) return;
+
+      schemeName.value = scheme.name;
+      schemeText.value = scheme.colors.join('\n');
+      syncValues();
+      schedulePreview();
+    }
+
+    function clearGalleryUrls() {
+      for (const url of galleryUrls) URL.revokeObjectURL(url);
+      galleryUrls = [];
     }
 
     function setSplit(percent) {
@@ -1004,12 +1206,40 @@
       loupe.classList.toggle('on', loupeEnabled);
     });
 
-    file.addEventListener('change', () => {
+    async function loadSampleImage() {
+      status.className = 'status';
+      status.textContent = 'Loading sample…';
+
+      try {
+        const response = await fetch('/sample.webp');
+        if (!response.ok) throw new Error(await response.text());
+        const blob = await response.blob();
+        setCurrentImage(new File([blob], 'sample.webp', { type: 'image/webp' }));
+        renderPreview(true);
+      } catch (error) {
+        status.className = 'status error';
+        status.textContent = error.message || String(error);
+      }
+    }
+
+    function setCurrentImage(imageFile) {
+      currentImageFile = imageFile;
+      galleryKey = '';
+      galleryToken++;
+      clearGalleryUrls();
+
       if (inputUrl) URL.revokeObjectURL(inputUrl);
-      if (!file.files.length) return;
-      inputUrl = URL.createObjectURL(file.files[0]);
+      inputUrl = URL.createObjectURL(imageFile);
       inputPreview.src = inputUrl;
       compare.classList.remove('empty');
+    }
+
+    uploadImage.addEventListener('click', () => file.click());
+    trySample.addEventListener('click', loadSampleImage);
+
+    file.addEventListener('change', () => {
+      if (!file.files.length) return;
+      setCurrentImage(file.files[0]);
       renderPreview(true);
     });
 
@@ -1134,6 +1364,7 @@
     syncValues();
     loadSchemeBrowser();
     setSplit(50);
+    loadSampleImage();
   </script>
 </body>
 </html>

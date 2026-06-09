@@ -5,7 +5,7 @@
     "Taylor Beeston <beeston.taylor@gmail.com>"
   ],
   "description": "Static client-only WebGPU app for Image Colorizer",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,15 +17,16 @@
     "image_colorizer_web.d.ts"
   ],
   "main": "image_colorizer_web.js",
+  "homepage": "https://imagecolorizerapp.netlify.app/",
   "types": "image_colorizer_web.d.ts",
   "sideEffects": [
     "./snippets/*"
   ],
   "keywords": [
-    "image",
-    "color",
-    "gpu",
+    "wallpaper",
+    "colorscheme",
     "webgpu",
+    "rust",
     "wgsl"
   ]
 }

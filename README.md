@@ -1,14 +1,34 @@
 # Image Colorizer
 
-**Never settle for images outside your colorscheme again!**
-Now 🔥B l a z i n g F a s t🔥 thanks to 🦀Rust and 🖥️WGSL
+**Make any wallpaper match your colorscheme.**
+
+Image Colorizer is a Rust/WebGPU tool that recolors wallpapers and images to fit palettes like Kanagawa, Catppuccin, Nord, Gruvbox, Tokyo Night, or your own custom colorscheme.
+
+Use it as a CLI for batch-processing wallpaper folders, or try the static browser demo that runs locally in your browser.
+
+[![Live demo](https://img.shields.io/badge/live-demo-7e9cd8)](https://imagecolorizerapp.netlify.app/)
+[![AUR Version](https://img.shields.io/aur/version/image-colorizer)](https://aur.archlinux.org/packages/image-colorizer)
+[![Crates.io Version](https://img.shields.io/crates/v/image-colorizer)](https://crates.io/crates/image-colorizer)
+[![GitHub Release](https://img.shields.io/github/v/release/TaylorBeeston/image-colorizer)](https://github.com/TaylorBeeston/image-colorizer/releases)
 
 ![demo](https://github.com/user-attachments/assets/29cf09a4-df00-4873-a7d8-a0c87a7ed87b)
 
-## Install
+## Gallery
 
-![AUR Version](https://img.shields.io/aur/version/image-colorizer)
-![Crates.io Version](https://img.shields.io/crates/v/image-colorizer)
+| Original | Kanagawa | Catppuccin Mocha | Nord | Gruvbox |
+|---|---|---|---|---|
+| ![Original neon tech wallpaper sample](docs/gallery/original.png) | ![Neon tech wallpaper recolored to Kanagawa](docs/gallery/kanagawa.png) | ![Neon tech wallpaper recolored to Catppuccin Mocha](docs/gallery/catppuccin-mocha.png) | ![Neon tech wallpaper recolored to Nord](docs/gallery/nord.png) | ![Neon tech wallpaper recolored to Gruvbox](docs/gallery/gruvbox-dark-hard.png) |
+
+## Why?
+
+Tools like pywal and wallust generate a theme from a wallpaper. Image Colorizer solves the inverse problem: you already have a theme, and you want your wallpapers to match it.
+
+| Tool | What it does |
+|---|---|
+| pywal / wallust | Generate a theme from a wallpaper |
+| Image Colorizer | Generate a wallpaper from a theme |
+
+## Install
 
 ### AUR
 
@@ -26,7 +46,7 @@ cargo install image-colorizer
 
 ```toml
 [dependencies]
-image-colorizer-core = { git = "https://github.com/TaylorBeeston/image-colorizer" }
+image-colorizer-core = "1"
 image = "0.24"
 anyhow = "1"
 palette = "0.7"
@@ -86,10 +106,16 @@ Then open `http://127.0.0.1:8474`. The web UI runs locally and uses the same nat
 ## Features
 
 - GPU-resident image processing using WebGPU Shading Language (WGSL)
+- CLI batch processing for wallpaper folders
+- Static browser app that runs locally with WebGPU and a WASM CPU fallback
 - Custom local colorschemes, with missing built-in schemes downloaded automatically
 - Colorscheme interpolation, dithering, and spatial averaging to reduce banding/artifacts
 - Efficient batch processing with one reusable GPU renderer and overlapped image decode/save
-- Local web UI via `image-colorizer serve` with live parameter/colorscheme preview and config saving
+- AUR and Cargo installs
+
+## Built-in colorschemes
+
+Kanagawa, Catppuccin Latte/Frappe/Macchiato/Mocha, Nord, Tomorrow Night, Gruvbox Dark Hard, Tokyo Night Dark, Dracula, Everforest Dark Hard, Rosé Pine, Solarized Dark, Monokai, OneDark, and grayscale.
 
 ## Prerequisites
 
@@ -138,15 +164,15 @@ If a requested colorscheme is not found beside the config file, Image Colorizer 
 
 ## Static Browser App
 
-This branch includes a client-only WebGPU app in `crates/image-colorizer-web/static/`. It is a separate workspace package from the CLI, so `image-colorizer serve` remains the native-GPU server UI for machines where you want a local service backed by that machine's GPU.
+The static app in `crates/image-colorizer-web/static/` opens with an optimized WebP sample before/after, palette picker, clickable gallery cards, and install links so visitors can see the value before uploading anything. It decodes images in the browser, runs the same three WGSL compute passes on the user's GPU when available, and falls back to a slower local WASM CPU renderer otherwise. No image data is uploaded.
 
-The static app can be hosted as plain files; `netlify.toml` publishes the web package's `static/` directory and sets the cross-origin headers browsers expect for GPU-heavy frontend work.
+`netlify.toml` publishes the web package's `static/` directory and sets the cross-origin headers browsers expect for GPU-heavy frontend work.
 
 ```bash
 python -m http.server 8080 --directory crates/image-colorizer-web/static
 ```
 
-Then open `http://127.0.0.1:8080`. The static app decodes images in the browser, runs the same three WGSL compute passes on the user's GPU when available, and falls back to a slower local WASM CPU renderer otherwise. No image data is uploaded.
+Then open `http://127.0.0.1:8080`.
 
 If you change the CPU fallback Rust code, rebuild the committed WASM assets before deploying:
 

@@ -16,6 +16,8 @@ const elements = {
   inputCanvas: document.querySelector('#inputCanvas'),
   outputCanvas: document.querySelector('#outputCanvas'),
   download: document.querySelector('#download'),
+  trySample: document.querySelector('#trySample'),
+  uploadImage: document.querySelector('#uploadImage'),
   saveConfig: document.querySelector('#saveConfig'),
   importConfig: document.querySelector('#importConfig'),
   configFile: document.querySelector('#configFile'),
@@ -26,6 +28,7 @@ const elements = {
   schemeSearch: document.querySelector('#schemeSearch'),
   schemeDisplay: document.querySelector('#schemeDisplay'),
   activeSchemeStrip: document.querySelector('#activeSchemeStrip'),
+  workspaceScheme: document.querySelector('#workspaceScheme'),
   schemeName: document.querySelector('#schemeName'),
   schemeText: document.querySelector('#schemeText'),
   swatches: document.querySelector('#swatches'),
@@ -47,6 +50,7 @@ const elements = {
   closeFallback: document.querySelector('#closeFallback'),
   cpuProgress: document.querySelector('#cpuProgress'),
   cpuProgressBar: document.querySelector('#cpuProgressBar'),
+  gallery: document.querySelector('#gallery'),
   openCpuExplain: document.querySelector('#openCpuExplain'),
   cpuExplainModal: document.querySelector('#cpuExplainModal'),
   closeCpuExplain: document.querySelector('#closeCpuExplain'),
@@ -96,6 +100,69 @@ const help = {
   },
 };
 
+const SAMPLE_IMAGE_URL = 'sample.webp';
+
+const FEATURED_SCHEMES = [
+  {
+    name: 'catppuccin-mocha',
+    source: 'Built in',
+    colors: ['#f5e0dc', '#f2cdcd', '#f5c2e7', '#cba6f7', '#f38ba8', '#eba0ac', '#fab387', '#f9e2af', '#a6e3a1', '#94e2d5', '#89dceb', '#74c7ec', '#89b4fa', '#b4befe', '#cdd6f4', '#bac2de', '#a6adc8', '#9399b2', '#7f849c', '#6c7086', '#585b70', '#45475a', '#313244', '#1e1e2e', '#181825', '#11111b'],
+  },
+  {
+    name: 'nord',
+    source: 'Built in',
+    colors: ['#2e3440', '#3b4252', '#434c5e', '#4c566a', '#d8dee9', '#e5e9f0', '#eceff4', '#8fbcbb', '#88c0d0', '#81a1c1', '#5e81ac', '#bf616a', '#d08770', '#ebcb8b', '#a3be8c', '#b48ead'],
+  },
+  {
+    name: 'kanagawa',
+    source: 'Built in',
+    colors: KANAGAWA,
+  },
+  {
+    name: 'gruvbox-dark-hard',
+    source: 'Built in',
+    colors: ['#1d2021', '#3c3836', '#504945', '#665c54', '#bdae93', '#d5c4a1', '#ebdbb2', '#fbf1c7', '#fb4934', '#fe8019', '#fabd2f', '#b8bb26', '#8ec07c', '#83a598', '#d3869b', '#d65d0e'],
+  },
+  {
+    name: 'tokyo-night-dark',
+    source: 'Built in',
+    colors: ['#1A1B26', '#16161E', '#2F3549', '#444B6A', '#787C99', '#A9B1D6', '#CBCCD1', '#D5D6DB', '#C0CAF5', '#A9B1D6', '#0DB9D7', '#9ECE6A', '#B4F9F8', '#2AC3DE', '#BB9AF7', '#F7768E'],
+  },
+  {
+    name: 'dracula',
+    source: 'Built in',
+    colors: ['#282a36', '#21222c', '#44475A', '#6272a4', '#9ea8c7', '#f8f8f2', '#f8f8f2', '#ffffff', '#ff5555', '#FFB86C', '#f1fa8c', '#50fa7b', '#8be9fd', '#bd93f9', '#ff79c6', '#993333'],
+  },
+  {
+    name: 'everforest-dark-hard',
+    source: 'Built in',
+    colors: ['#272e33', '#2e383c', '#414b50', '#859289', '#9da9a0', '#d3c6aa', '#edeada', '#fffbef', '#e67e80', '#e69875', '#dbbc7f', '#a7c080', '#83c092', '#7fbbb3', '#d699b6', '#9da9a0'],
+  },
+  {
+    name: 'rose-pine',
+    source: 'Built in',
+    colors: ['#191724', '#1f1d2e', '#26233a', '#6e6a86', '#908caa', '#e0def4', '#e0def4', '#524f67', '#eb6f92', '#f6c177', '#ebbcba', '#31748f', '#9ccfd8', '#c4a7e7', '#f6c177', '#524f67'],
+  },
+  {
+    name: 'solarized-dark',
+    source: 'Built in',
+    colors: ['#002b36', '#073642', '#586e75', '#657b83', '#839496', '#93a1a1', '#eee8d5', '#fdf6e3', '#dc322f', '#cb4b16', '#b58900', '#859900', '#2aa198', '#268bd2', '#6c71c4', '#d33682'],
+  },
+  {
+    name: 'monokai',
+    source: 'Built in',
+    colors: ['#272822', '#383830', '#49483e', '#75715e', '#a59f85', '#f8f8f2', '#f5f4f1', '#f9f8f5', '#f92672', '#fd971f', '#f4bf75', '#a6e22e', '#a1efe4', '#66d9ef', '#ae81ff', '#cc6633'],
+  },
+  {
+    name: 'onedark',
+    source: 'Built in',
+    colors: ['#282c34', '#353b45', '#3e4451', '#545862', '#565c64', '#abb2bf', '#b6bdca', '#c8ccd4', '#e06c75', '#d19a66', '#e5c07b', '#98c379', '#56b6c2', '#61afef', '#c678dd', '#be5046'],
+  },
+];
+
+const DEFAULT_SCHEME = FEATURED_SCHEMES.find(scheme => scheme.name === 'kanagawa') || FEATURED_SCHEMES[0];
+const GALLERY_SCHEMES = ['kanagawa', 'catppuccin-mocha', 'nord', 'gruvbox-dark-hard'];
+
 let colorizer;
 let colorizerReady;
 let inputImageData;
@@ -110,6 +177,9 @@ let currentSplit = 50;
 let dragging = false;
 let loupeEnabled = false;
 let cpuFallbackShown = false;
+let imageRevision = 0;
+let galleryRenderedKey = '';
+let galleryRenderToken = 0;
 let schemes = [];
 const faviconState = { image: undefined, imagePromise: undefined, key: '' };
 
@@ -117,33 +187,46 @@ const faviconState = { image: undefined, imagePromise: undefined, key: '' };
 bootstrap();
 
 async function bootstrap() {
-  elements.schemeText.value = KANAGAWA.join('\n');
+  elements.schemeName.value = DEFAULT_SCHEME.name;
+  elements.schemeText.value = DEFAULT_SCHEME.colors.join('\n');
   restoreConfig();
   syncControls();
   bindEvents();
   setSplit(50);
+  const sampleReady = loadSampleImage();
   loadSchemeBrowser();
 
   colorizerReady = createColorizer()
-    .then(instance => {
+    .then(async instance => {
       colorizer = instance;
-      setStatus(inputImageData ? 'Ready. Rendering…' : 'Ready.');
-      if (inputImageData) scheduleRender(0);
+      await sampleReady;
+      setStatus('Rendering sample…');
+      scheduleRender(0);
     })
     .catch(error => setError(error.message || String(error)));
 }
 async function createColorizer() {
   try {
     return await WebGpuColorizer.create();
-  } catch {
-    const colorizer = await CpuColorizer.create();
-    colorizer.onProgress = updateCpuProgress;
-
-
-    showCpuFallbackModal();
-
-    return colorizer;
+  } catch (error) {
+    return createCpuFallback(error);
   }
+}
+
+async function createCpuFallback(error) {
+  if (error) console.warn('Falling back to CPU colorizer:', error);
+
+  const colorizer = await CpuColorizer.create();
+  colorizer.onProgress = updateCpuProgress;
+
+  showCpuFallbackModal();
+
+  return colorizer;
+}
+
+async function switchToCpuFallback(error) {
+  colorizer?.destroy?.();
+  colorizer = await createCpuFallback(error);
 }
 
 function showCpuFallbackModal() {
@@ -157,6 +240,8 @@ function showCpuFallbackModal() {
 function bindEvents() {
   elements.form.addEventListener('submit', event => event.preventDefault());
   elements.file.addEventListener('change', loadImage);
+  elements.trySample.addEventListener('click', loadSampleImage);
+  elements.uploadImage.addEventListener('click', () => elements.file.click());
 
   for (const slider of Object.values(sliders)) slider.addEventListener('input', scheduleRender);
 
@@ -236,6 +321,10 @@ async function loadImage() {
 
   try {
     inputImageData = await fileToImageData(file);
+    imageRevision++;
+    galleryRenderedKey = '';
+    galleryRenderToken++;
+
     setStatus(colorizer ? 'Rendering…' : 'Preparing…');
     drawImageData(elements.inputCanvas, inputImageData);
     replaceLoupeUrl('input', elements.inputCanvas.toDataURL('image/png'));
@@ -245,6 +334,131 @@ async function loadImage() {
     setError(error.message || String(error));
   }
 }
+
+async function loadSampleImage() {
+  inputFileName = 'sample.webp';
+  setStatus(colorizer ? 'Rendering sample…' : 'Preparing sample…');
+
+  try {
+    const image = await loadStaticImage(SAMPLE_IMAGE_URL);
+    inputImageData = drawableToImageData(image, image.naturalWidth, image.naturalHeight);
+    imageRevision++;
+    galleryRenderedKey = '';
+
+    galleryRenderToken++;
+    drawImageData(elements.inputCanvas, inputImageData);
+    replaceLoupeUrl('input', elements.inputCanvas.toDataURL('image/png'));
+    elements.compare.classList.remove('empty');
+
+    if (colorizer) scheduleRender(0);
+  } catch (error) {
+    setError(error.message || String(error));
+  }
+}
+
+async function renderGallery() {
+  if (!colorizer || !inputImageData || !elements.gallery) return;
+
+  const key = `${imageRevision}:${inputImageData.width}x${inputImageData.height}`;
+  if (galleryRenderedKey === key) return;
+
+  const token = ++galleryRenderToken;
+  const sample = resizeImageData(inputImageData, 360);
+  const cards = new Map();
+
+  elements.gallery.innerHTML = '';
+  elements.gallery.append(createGalleryCard('Original', sample));
+
+  for (const name of GALLERY_SCHEMES) {
+    const card = createGalleryCard(name, undefined, name, sample);
+    cards.set(name, card);
+    elements.gallery.append(card);
+  }
+
+  for (const name of GALLERY_SCHEMES) {
+    if (token !== galleryRenderToken) return;
+
+    const scheme = FEATURED_SCHEMES.find(scheme => scheme.name === name);
+    if (!scheme) continue;
+
+    const card = cards.get(name);
+    card.classList.add('loading');
+
+    const output = await colorizer.colorize(sample, {
+      blendFactor: 0.92,
+      ditherAmount: 0.1,
+      spatialRadius: 10,
+      interpolationThreshold: 2.5,
+      interpolateColors: true,
+      colors: scheme.colors,
+    });
+
+    if (token !== galleryRenderToken) return;
+
+    drawImageData(card.querySelector('canvas'), output);
+    card.classList.remove('queued', 'loading');
+    card.disabled = false;
+    updateSelectedGalleryScheme(elements.schemeName.value || 'Custom');
+  }
+
+  galleryRenderedKey = key;
+  hideCpuProgress();
+}
+
+function createGalleryCard(name, imageData, schemeName, placeholder) {
+  const card = document.createElement(schemeName ? 'button' : 'article');
+  const canvas = document.createElement('canvas');
+  const label = document.createElement('strong');
+
+  card.className = 'gallery-card';
+  label.textContent = name;
+
+  if (schemeName) {
+    card.type = 'button';
+    card.dataset.scheme = schemeName;
+    card.disabled = true;
+    card.addEventListener('click', () => selectGalleryScheme(schemeName));
+  }
+
+  if (imageData) drawImageData(canvas, imageData);
+  else {
+    canvas.width = placeholder?.width || 256;
+    canvas.height = placeholder?.height || 144;
+    card.classList.add('queued');
+  }
+
+  card.append(canvas, label);
+
+  return card;
+}
+
+function selectGalleryScheme(name) {
+  const scheme = FEATURED_SCHEMES.find(scheme => scheme.name === name);
+  if (!scheme) return;
+
+  elements.schemeName.value = scheme.name;
+  elements.schemeText.value = scheme.colors.join('\n');
+  syncControls();
+  scheduleRender(0);
+}
+
+function resizeImageData(imageData, maxSize) {
+  const scale = Math.min(1, maxSize / Math.max(imageData.width, imageData.height));
+  if (scale === 1) return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+
+  const source = document.createElement('canvas');
+  source.width = imageData.width;
+  source.height = imageData.height;
+  source.getContext('2d').putImageData(imageData, 0, 0);
+
+  const target = document.createElement('canvas');
+  target.width = Math.max(1, Math.round(imageData.width * scale));
+  target.height = Math.max(1, Math.round(imageData.height * scale));
+  target.getContext('2d', { colorSpace: 'srgb' }).drawImage(source, 0, 0, target.width, target.height);
+
+  return target.getContext('2d').getImageData(0, 0, target.width, target.height);
+}
+
 
 function scheduleRender(delay = 120) {
   syncControls();
@@ -278,9 +492,16 @@ async function renderImage() {
     drawImageData(elements.outputCanvas, output);
     replaceLoupeUrl('output', elements.outputCanvas.toDataURL('image/png'));
     await updateDownload();
+    await renderGallery();
     hideCpuProgress();
     setStatus('Rendered.');
   } catch (error) {
+    if (colorizer?.mode === 'gpu') {
+      await switchToCpuFallback(error);
+      scheduleRender(0);
+      return;
+    }
+
     hideCpuProgress();
     setError(error.message || String(error));
   } finally {
@@ -323,7 +544,10 @@ function syncControls() {
   values.dither.textContent = sliders.dither.value;
   values.radius.textContent = sliders.radius.value;
   values.threshold.textContent = sliders.threshold.value;
-  elements.schemeDisplay.textContent = elements.schemeName.value || 'Custom';
+  const schemeName = elements.schemeName.value || 'Custom';
+  elements.schemeDisplay.textContent = schemeName;
+  elements.workspaceScheme.textContent = schemeName;
+  updateSelectedGalleryScheme(schemeName);
 
   try {
     const palette = parseColorscheme(elements.schemeText.value);
@@ -333,6 +557,12 @@ function syncControls() {
   } catch {
     elements.activeSchemeStrip.innerHTML = '';
     elements.swatches.innerHTML = '';
+  }
+}
+
+function updateSelectedGalleryScheme(name) {
+  for (const card of elements.gallery.querySelectorAll('[data-scheme]')) {
+    card.classList.toggle('selected', card.dataset.scheme === name);
   }
 }
 
@@ -370,7 +600,8 @@ async function loadSchemeBrowser() {
         source: 'Tinted Base16',
       }));
 
-    schemes = [...local, ...await loadRemotePreviews(remote)];
+    const remotePreviews = await loadRemotePreviews(remote);
+    schemes = [...local, ...remotePreviews.filter(remote => !local.some(scheme => scheme.name === remote.name))];
     renderSchemeBrowser();
   } catch (error) {
     schemes = local;
@@ -507,7 +738,7 @@ function saveColorscheme() {
     parseColorscheme(text);
     localStorage.setItem(`image-colorizer:scheme:${name}`, text);
     downloadText(`${name}.txt`, `${text}\n`, 'text/plain');
-    schemes = [...localSchemes(), ...schemes.filter(scheme => scheme.source !== 'Saved locally')];
+    schemes = [...localSchemes(), ...schemes.filter(scheme => scheme.source !== 'Saved locally' && scheme.source !== 'Built in')];
     renderSchemeBrowser();
     setStatus('Saved colorscheme.');
   } catch (error) {
@@ -516,7 +747,10 @@ function saveColorscheme() {
 }
 
 function localSchemes() {
-  const output = [];
+  const output = FEATURED_SCHEMES.map(scheme => ({
+    ...scheme,
+    text: scheme.colors.join('\n'),
+  }));
 
   for (let index = 0; index < localStorage.length; index++) {
     const key = localStorage.key(index);
@@ -524,12 +758,17 @@ function localSchemes() {
 
     const text = localStorage.getItem(key) || '';
     try {
-      output.push({
-        name: key.slice('image-colorizer:scheme:'.length),
+      const name = key.slice('image-colorizer:scheme:'.length);
+      const existing = output.findIndex(scheme => scheme.name === name);
+      const scheme = {
+        name,
         text,
         colors: parseColorscheme(text),
         source: 'Saved locally',
-      });
+      };
+
+      if (existing === -1) output.push(scheme);
+      else output[existing] = scheme;
     } catch {
     }
   }
@@ -866,6 +1105,15 @@ async function renderDynamicFavicon(colors, key) {
     elements.appLogo.src = url;
   } catch {
   }
+}
+
+function loadStaticImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = url;
+  });
 }
 
 function loadFaviconImage() {

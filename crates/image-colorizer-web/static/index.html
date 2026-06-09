@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Image Colorizer</title>
+  <title>Image Colorizer — make wallpapers match your colorscheme</title>
+  <meta name="description" content="Recolor wallpapers to Catppuccin, Nord, Kanagawa, Gruvbox, or your own palette locally in your browser.">
   <link rel="icon" href="favicon.png" type="image/png" sizes="256x256">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -12,12 +13,21 @@
     <aside class="panel controls">
       <h1 class="brand"><img id="appLogo" class="brand-logo" src="favicon.png" alt="" width="48" height="48"><span>Image Colorizer</span></h1>
 
+      <section class="hero-copy" aria-labelledby="heroTitle">
+        <p class="eyebrow">Theme-aware wallpaper recoloring</p>
+        <h2 id="heroTitle">Make any wallpaper match your colorscheme</h2>
+        <p>Recolor images to Catppuccin, Nord, Kanagawa, Gruvbox, or your own palette. Fast, local, private, and available as a CLI.</p>
+        <div class="cta-row">
+          <button id="trySample" type="button">Try sample</button>
+          <button id="uploadImage" class="secondary" type="button">Upload image</button>
+          <input id="file" type="file" accept="image/*" hidden>
+          <a class="button ghost" href="https://github.com/TaylorBeeston/image-colorizer">GitHub</a>
+          <a class="button ghost" href="https://aur.archlinux.org/packages/image-colorizer">AUR</a>
+        </div>
+        <p class="trust-line">Runs locally in your browser. Your images are not uploaded.</p>
+      </section>
+
       <form id="form">
-        <fieldset>
-          <legend>Source</legend>
-          <input id="file" type="file" accept="image/*">
-          <p class="hint">Processed locally by this app.</p>
-        </fieldset>
 
         <fieldset>
           <legend>Parameters</legend>
@@ -79,7 +89,10 @@
 
     <main class="panel workspace">
       <div class="toolbar">
-        <p id="status" class="status">Starting…</p>
+        <div>
+          <p id="status" class="status">Starting…</p>
+          <p class="workspace-meta">Scheme: <strong id="workspaceScheme">catppuccin-mocha</strong></p>
+        </div>
         <div class="row">
           <button id="openPerformanceInfo" class="ghost" type="button">Performance</button>
           <button id="toggleLoupe" class="ghost" type="button">Loupe: off</button>
@@ -101,6 +114,14 @@
       </section>
 
       <p class="small">Drag the handle to compare. Turn on the loupe and touch or hover the preview to inspect pixels.</p>
+
+      <section class="sample-gallery" aria-label="Sample colorized wallpapers">
+        <div class="gallery-head">
+          <h2>See the same image snapped to popular palettes</h2>
+          <p class="small">Original plus live-rendered Kanagawa, Catppuccin Mocha, Nord, and Gruvbox examples.</p>
+        </div>
+        <div id="gallery" class="gallery-grid" aria-live="polite"></div>
+      </section>
     </main>
   </div>
 
